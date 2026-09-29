@@ -16,7 +16,7 @@ specifications.
 import os
 import pathlib
 from collections.abc import Iterable, Mapping, MutableMapping, MutableSequence, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -30,7 +30,11 @@ from bidslab._typing import A
 from bidslab.common.base import BaseAcquisition, Entity, check_entity_mismatch
 from bidslab.settings import get_settings_value
 from bidslab.utils.checks import check_if_valid_uri
-from bidslab.utils.dict_manipulation import clean_dict, manipulate_dictkeys
+from bidslab.utils.dict_manipulation import (
+    ManipulateKeysOption,
+    clean_dict,
+    manipulate_dictkeys,
+)
 from bidslab.utils.exceptions import (
     FieldEntryNotValidError,
     TopLevelEntityNotLinkedWarning,
@@ -567,12 +571,12 @@ class PhysioRecording(Recording):
         The start time of the recording relative to some reference point.
     columns : MutableSequence[Column]
         The column specifications for the data in this recording.
+    physio_type : str, optional
+        Defines the specific type of physiological recording.
     hardware : Hardware, optional
         Information about the hardware used for this recording.
     virtual_entity : bool
         Parameter to distinguish virtual and real entities.
-    **kwargs
-        Optional recording metadata.
 
     Attributes
     ----------
@@ -580,6 +584,8 @@ class PhysioRecording(Recording):
         The start time of the recording.
     columns : MutableSequence[Column]
         The column specifications.
+    physio_type : str | None
+        The specific type of physiological recording.
     hardware : Hardware | None
         The hardware information.
 
@@ -609,9 +615,9 @@ class PhysioRecording(Recording):
         sampling_frequency: int,
         start_time: int | float,
         columns: MutableSequence[Column],
+        physio_type: str | None = None,
         hardware: Hardware | None = None,
         virtual_entity: bool = False,
-        **kwargs: Any,
     ):
         super().__init__(
             base_path=base_path,
@@ -622,13 +628,33 @@ class PhysioRecording(Recording):
 
         self.start_time: int | float = start_time
         self.columns: MutableSequence[Column] = columns
+        self.physio_type: str | None = physio_type
         self.hardware: Hardware | None = hardware
 
         self._data: Any | None = None
         self._events: Sequence[Event] | None = None
 
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+    @property
+    def data(self) -> pd.DataFrame:
+        # numpydoc ignore=RT01
+        """Get the data of the physio recording."""
+        if self._data is None:
+            # load data
+            files = self.root.glob("*physio.tsv.gz")
+            entities = self.get_top_level_entities()
+            for file in files:
+                # test if file is valid
+                if check_entity_mismatch(
+                    file.name.removesuffix("_physio.tsv.gz"), entities
+                ):
+                    self._data = load_tsv_data(path=file)
+                    return self._data
+        return self._data
+
+    @data.setter
+    def data(self, value: pd.DataFrame) -> None:
+        # numpydoc ignore=GL08
+        self._data = value
 
     @property
     def events(self) -> Sequence[Event] | None:
@@ -659,9 +685,7 @@ class PhysioRecording(Recording):
         output_path_tsv = append_path(output_path, "_physio.tsv.gz")
 
         # write data into _physio.tsv.gz
-        data_tsv = self._data
-        if data_tsv is None:  # TODO remove
-            data_tsv = pd.DataFrame()
+        data_tsv = self.data
         data_tsv.to_csv(
             output_path_tsv,
             sep="\t",
@@ -675,7 +699,28 @@ class PhysioRecording(Recording):
         description.pop("_data", None)
         description.pop("_events", None)
         description.pop("recording_id", None)
+        description.pop("columns", None)
+        description.pop("hardware", None)
+        if self.hardware is not None:
+            hardware_description = asdict(self.hardware)
+            description.update(hardware_description)
+
         description = clean_dict(description)
+
+        columns = self.columns
+        column_names = []
+        for column in columns:
+            column_dict = column.__dict__.copy()
+            column_names.append(column_dict.pop("column_name"))
+            column_dict = clean_dict(
+                column_dict,
+                skip_keys_to_manipulate=ManipulateKeysOption.NO_MANIPULATION,
+            )
+            if column_dict:
+                description[column.column_name] = column_dict
+
+        if column_names:
+            description["Columns"] = column_names
         write_json(description, output_path_json)
 
         # write physioevents
@@ -736,7 +781,7 @@ class StimRecording(Recording):
         start_time: int | float,
         columns: MutableSequence[Column],
         virtual_entity: bool = False,
-        **kwargs,
+        **kwargs: Any,
     ):
         super().__init__(
             base_path=base_path,
@@ -759,6 +804,29 @@ class StimRecording(Recording):
     def data(self) -> Any | None:
         # numpydoc ignore=RT01
         """Get the data of the stim recording."""
+        if self._data is None:
+            # load data
+            folders = [self.root]
+            path = self.root
+            target = self.get_top_level_entities()[0]
+            while path.name != target:
+                path = path.parent
+                folders.append(path)
+            path = path.parent
+            folders.append(path)
+
+            files: list[pathlib.Path] = []
+            for folder in folders:
+                files = files + list(folder.glob("*_stim.tsv.gz"))
+
+            entities = self.get_top_level_entities()
+            for file in files:
+                # test if file is valid
+                if check_entity_mismatch(
+                    file.name.removesuffix("_stim.tsv.gz"), entities
+                ):
+                    self._data = load_tsv_data(path=file)
+                    return self._data
         return self._data
 
     @data.setter
@@ -780,20 +848,35 @@ class StimRecording(Recording):
 
         # write tsv.gz
         data_tsv = self.data
-        if data_tsv is None:  # TODO remove
-            data_tsv = pd.DataFrame()
-        data_tsv.to_csv(
-            output_path_tsv,
-            sep="\t",
-            index=False,
-            header=False,
-            compression="gzip",
-        )
+        if data_tsv is not None:
+            data_tsv.to_csv(
+                output_path_tsv,
+                sep="\t",
+                index=False,
+                header=False,
+                compression="gzip",
+            )
 
         # write json sidecar
         description = self.__dict__.copy()
         description.pop("data", None)
         description.pop("recording_id", None)
+        description.pop("columns", None)
+
+        columns = self.columns
+        column_names = []
+        for column in columns:
+            column_dict = column.__dict__.copy()
+            column_names.append(column_dict.pop("column_name"))
+            column_dict = clean_dict(
+                column_dict,
+                skip_keys_to_manipulate=ManipulateKeysOption.NO_MANIPULATION,
+            )
+            if column_dict:
+                description[column.column_name] = column_dict
+
+        if column_names:
+            description["columns"] = column_names
         description = clean_dict(description)
         write_json(description, output_path_json)
 
@@ -899,11 +982,27 @@ class Run(Entity, Generic[A]):
         # numpydoc ignore=RT01
         """Get physiological recordings associated with this Run."""
         if self._physio is None:
-            recording_labels = get_recordings_from_files(self, self.root, "physio")
+            recording_labels = get_recordings_from_files(
+                self, self.root, "physio.tsv.gz"
+            )
             if not recording_labels:
                 return None
             self._physio = {}
-            files = self.root.glob("*_physio.json")
+
+            # make files a list and append all possible
+            # files in higher directories
+            folders = [self.root]
+            path = self.root
+            target = self.get_top_level_entities()[0]
+            while path.name != target:
+                path = path.parent
+                folders.append(path)
+            path = path.parent
+            folders.append(path)
+
+            files: list[pathlib.Path] = []
+            for folder in folders:
+                files = files + list(folder.glob("*_physio.json"))
 
             for key, value in recording_labels.items():
                 # get description (load json sidecar)
@@ -917,18 +1016,45 @@ class Run(Entity, Generic[A]):
                         entitylist,
                     ):
                         description = parse_json_sidecar(file)
+                        break
 
                 # create the entity with the loaded description
                 if description:
                     # TODO create hardware and columns as class
                     description = manipulate_dictkeys(description, to_snakecase)
+                    sampling_frequency = description.pop("sampling_frequency", None)
+                    start_time = description.pop("start_time", None)
+                    physio_type = description.pop("physio_type", None)
+                    hardware = Hardware(
+                        manufacturer=description.pop("maunfacturer", None),
+                        manufacturers_model_name=description.pop(
+                            "manufacturers_model_name", None
+                        ),
+                        device_serial_number=description.pop(
+                            "device_serial_number", None
+                        ),
+                        software_versions=description.pop("software_versions", None),
+                    )
+                    column_names = description.pop("columns", None)
+                    columns = []
+
+                    columns = [
+                        Column(column_name, **description.pop(column_name, {}))
+                        for column_name in column_names
+                    ]
+
                     self._physio[key] = PhysioRecording(
                         recording_id=key,
                         virtual_entity=value,
                         base_path=self.root,
-                        run=self,
+                        sampling_frequency=sampling_frequency,
+                        start_time=start_time,
+                        physio_type=physio_type,
+                        hardware=hardware,
+                        columns=columns,
                         **description,
                     )
+                    self._physio[key].run = self
                 else:
                     raise FileNotFoundError
 
@@ -949,7 +1075,65 @@ class Run(Entity, Generic[A]):
         # numpydoc ignore=RT01
         """Return stim recordings associated with the run."""
         if self._stims is None:
-            self._stims = get_stims_from_files(self, self.root)
+            recording_labels = get_recordings_from_files(self, self.root, "stim.tsv.gz")
+            if not recording_labels:
+                return None
+            self._stims = {}
+
+            # make files a list and append all possible
+            # files in higher directories
+            folders = [self.root]
+            path = self.root
+            target = self.get_top_level_entities()[0]
+            while path.name != target:
+                path = path.parent
+                folders.append(path)
+            path = path.parent
+            folders.append(path)
+
+            files = []
+            for folder in folders:
+                files = files + list(folder.glob("*_stim.json"))
+
+            for key, value in recording_labels.items():
+                # get description (load json sidecar)
+                entitylist = self.get_top_level_entities()
+                entitylist.append(key)
+
+                description = {}
+                for file in files:
+                    if check_entity_mismatch(
+                        file.stem.removesuffix("_stim"),
+                        entitylist,
+                    ):
+                        description = parse_json_sidecar(file)
+                        break
+
+                # create the entity with the loaded description
+                if description:
+                    description = manipulate_dictkeys(description, to_snakecase)
+                    sampling_frequency = description.pop("sampling_frequency", None)
+                    start_time = description.pop("start_time", None)
+                    column_names = description.pop("columns", None)
+                    columns = []
+
+                    columns = [
+                        Column(column_name, **description.pop(column_name, {}))
+                        for column_name in column_names
+                    ]
+
+                    self._stims[key] = StimRecording(
+                        virtual_entity=value,
+                        recording_id=key,
+                        base_path=self.root,
+                        sampling_frequency=sampling_frequency,
+                        start_time=start_time,
+                        columns=columns,
+                    )
+                    self._stims[key].run = self
+                else:
+                    raise FileNotFoundError
+
         return self._stims
 
     @stims.setter
@@ -1156,36 +1340,36 @@ def get_recordings_from_files(
     base_path : os.Pathike | str
         The initial path to find the files.
     file_ending : str
-        The ending of the files (not including the extension).
+        The ending of the files including the extension.
 
     Returns
     -------
     dict[str, bool]
         A dict containing the recording_ids and if they are virtual_entities.
     """
-    # file_ending eg "physio" or "eeg", not extension eg ".json"
-    # returns all rercording-labels and if they are virtual entities
     labels = {}
 
     base_path = pathlib.Path(base_path)
-    files = base_path.glob(f"*_{file_ending}.*")
+    files = base_path.glob(f"*_{file_ending}")
     for file in files:
         try:
             label = get_entity_from_file(file, "recording")["recording"]
             entities = run.get_top_level_entities()
             entities.append(f"recording-{label}")
-            if check_entity_mismatch(file.stem.removesuffix("_physio"), entities):
+            if check_entity_mismatch(
+                file.name.removesuffix(f"_{file_ending}"), entities
+            ):
                 labels[f"recording-{label}"] = False
 
         except KeyError:
             continue
 
     if not labels:
-        files = base_path.glob(f"*_{file_ending}.*")
+        files = base_path.glob(f"*_{file_ending}")
         for file in files:
             # check if a file matches
             if check_entity_mismatch(
-                file.stem.removesuffix("_physio"), run.get_top_level_entities()
+                file.name.removesuffix(f"_{file_ending}"), run.get_top_level_entities()
             ):
                 labels["recording-00"] = True
                 break
@@ -1194,7 +1378,7 @@ def get_recordings_from_files(
 
 
 def get_events_from_files(
-    cls: Recording | Run, base_path: os.PathLike | str, file_ending="events"
+    cls: Recording | Run, base_path: os.PathLike | str, file_ending: str = "events"
 ) -> MutableSequence[Event] | None:
     """
     Get Events from files.
@@ -1277,8 +1461,8 @@ def get_events_from_files(
                         add_object_to_sequence(
                             entity_list=events,
                             entity_class=Event,
-                            **event,
                             columns=columns,
+                            **event,
                         )
                     break
         else:
@@ -1287,135 +1471,12 @@ def get_events_from_files(
     return events
 
 
-def get_stims_from_files(
-    cls: Run, base_path: os.PathLike | str
-) -> dict[str, StimRecording] | None:
-    """
-    Get StimRecordings from files.
-
-    Parameters
-    ----------
-    cls : Run
-        The run object containing the stim recordings.
-    base_path : os.Pathike | str
-        The initial path to find the files.
-
-    Returns
-    -------
-    dict[str, StimRecording]
-        Dict containing the stim recordings and their ids.
-    """
-    base_path = pathlib.Path(base_path)
-
-    stims = {}
-
-    # possibility 1:
-    #   multiple recordings exist
-    # possibility 2
-    #   one recording exists (with recording label)
-    #   or without recording label
-    rec_labels = get_recordings_from_files(
-        run=cls, base_path=base_path, file_ending="stim"
-    )
-    if rec_labels:
-        files_json = base_path.glob("*_stim.json")
-        files_tsv = base_path.glob("*_stim.tsv.gz")
-
-        for key, value in rec_labels.items():
-            # get description (load json sidecar)
-            entitylist = cls.get_top_level_entities()
-            entitylist.append(key)
-
-            description = {}
-            for file in files_json:
-                if check_entity_mismatch(
-                    file.stem.removesuffix("_stim"),
-                    entitylist,
-                ):
-                    description = parse_json_sidecar(file)
-            for file in files_tsv:
-                if check_entity_mismatch(
-                    file.stem.removesuffix("_stim"),
-                    entitylist,
-                ):
-                    data = load_tsv_data(file)
-
-            # create the entity with the loaded description
-            if description:
-                description = manipulate_dictkeys(description, to_snakecase)
-                # TODO create hardware and columns as class
-                stims[key] = StimRecording(
-                    virtual_entity=value,
-                    recording_id=key,
-                    base_path=base_path,
-                    **description,
-                    **data,
-                )
-            else:
-                raise FileNotFoundError
-
-    # possibility 3
-    #   one recording in higher directory
-    else:
-        entities = cls.get_top_level_entities()
-        folders = [base_path]
-        path = base_path
-        target = entities[0]
-        while path.name != target:
-            path = path.parent
-            folders.append(path)
-        path = path.parent
-        folders.append(path)
-
-        description = {}
-        data = pd.DataFrame()
-        exists = False
-        # if stims is in higher folder only one file can exist
-        for folder in folders:
-            if description == {}:
-                # get all possible files with _stim.json
-                files_json = folder.glob("*_stim.json")
-                files_tsv = folder.glob("*_stim.tsv.gz")
-
-                # check for entity mismatches and use first one working
-                for file in files_json:  # in this case no recording label exists
-                    if check_entity_mismatch(
-                        file.stem.removesuffix("_stim"), cls.get_top_level_entities()
-                    ):
-                        # load .json file and save it
-                        description = parse_json_sidecar(file)
-                        exists = True
-                        break
-
-                for file in files_tsv:
-                    if check_entity_mismatch(
-                        file.stem.removesuffix("_stim"),
-                        cls.get_top_level_entities(),
-                    ):
-                        data = load_tsv_data(file)
-                        exists = True
-                        break
-            else:
-                break
-        if exists:
-            description = manipulate_dictkeys(description, to_snakecase)
-            stims["recording-00"] = StimRecording(
-                virtual_entity=True,
-                recording_id="recording-00",
-                base_path=base_path,
-                **description,
-                **data,
-            )
-
-    return stims
-
-
 def write_events_to_files(
     cls: Recording | Run,
     events: Sequence[Event],
     output_path: os.PathLike | str,
-    file_ending="events",
-    compressed=False,
+    file_ending: str = "events",
+    compressed: bool = False,
 ) -> None:
     """
     Write a sequence of events to disk.
@@ -1439,11 +1500,18 @@ def write_events_to_files(
     else:
         output_path_tsv = append_path(output_path, f"_{file_ending}.tsv")
 
-    data_json = events[0].columns
+    # write json sidecar
+    columns = events[0].columns
+
+    description = clean_dict(columns)
+    write_json(content=description, output_path=output_path_json)
+
+    # write stimuli and tsv data
+
     data_tsv = pd.DataFrame(event.__dict__ for event in events)
     data_tsv = data_tsv.drop(columns=["columns"], errors="ignore")
 
-    if "stim_file" in data_tsv.columns:  # TODO
+    if "stim_file" in data_tsv.columns:
         # find root of the dataset
         entities = cls.get_top_level_entities()
         output_dataset_root = pathlib.Path(output_path)
@@ -1469,8 +1537,6 @@ def write_events_to_files(
                 destination_path=stimuli_path,
             )
 
-    if isinstance(data_json, dict):
-        write_json(content=data_json, output_path=output_path_json)
     if compressed:
         data_tsv.to_csv(
             output_path_tsv, sep="\t", index=False, header=True, compression="gzip"

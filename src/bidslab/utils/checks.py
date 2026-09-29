@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from bidslab.common.specs_dataset import Dataset
 
 
-def check_readme(dataset: "Dataset", files: Sequence[pathlib.Path]):
+def check_readme(dataset: "Dataset", files: Sequence[pathlib.Path]) -> None:
     """
     Validate presence and uniqueness of the dataset README file.
 
@@ -102,7 +102,7 @@ def check_readme(dataset: "Dataset", files: Sequence[pathlib.Path]):
         raise FileMissingError("README file is missing.")
 
 
-def check_citation(dataset: "Dataset", files: Sequence[pathlib.Path]):
+def check_citation(dataset: "Dataset", files: Sequence[pathlib.Path]) -> None:
     """
     Validate a top-level ``CITATION.cff`` file and related metadata fields.
 
@@ -172,7 +172,7 @@ def check_citation(dataset: "Dataset", files: Sequence[pathlib.Path]):
                     )
 
 
-def check_license(dataset: "Dataset", files: Sequence[pathlib.Path]):
+def check_license(dataset: "Dataset", files: Sequence[pathlib.Path]) -> None:
     """
     Discover a LICENSE file and verify related descriptive metadata.
 
@@ -221,7 +221,7 @@ def check_license(dataset: "Dataset", files: Sequence[pathlib.Path]):
                 )
 
 
-def check_version(dataset: "Dataset", version: Any):
+def check_version(dataset: "Dataset", version: Any) -> None:
     """
     Compare a discovered BIDS version against the dataset target version.
 
@@ -280,7 +280,7 @@ def check_version(dataset: "Dataset", version: Any):
             )
 
 
-def check_dataset_description_present(dataset: "Dataset"):
+def check_dataset_description_present(dataset: "Dataset") -> None:
     """
     Ensure that ``dataset_description.json`` exists in the dataset root.
 
@@ -313,7 +313,7 @@ def check_dataset_description_present(dataset: "Dataset"):
         raise FileMissingError("dataset_description.json file is missing.")
 
 
-def check_if_valid_uri(uri: str):
+def check_if_valid_uri(uri: str) -> None:
     """
     Validate that a string is a syntactically valid URI.
 
@@ -347,7 +347,7 @@ def check_if_valid_uri(uri: str):
         raise InvalidURIError(f"Value '{uri}' is not a valid URI.")
 
 
-def check_files(dataset: "Dataset", files: Sequence[pathlib.Path]):
+def check_files(dataset: "Dataset", files: Sequence[pathlib.Path]) -> None:
     """
     Discover special top-level files and directories in a BIDS dataset.
 

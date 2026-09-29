@@ -1,4 +1,3 @@
-# ruff: noqa: RUF067
 """
 BIDSlab is a Python package for working with BIDS datasets.
 

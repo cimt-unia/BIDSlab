@@ -842,11 +842,14 @@ def get_scans_from_files(
     column_data = {}
     scans: Sequence[Scan] = []
 
-    for dir_level in get_matching_subpaths(
+    subpaths = get_matching_subpaths(
         path=session.root,
         matches=["sub-*", "ses-*"],
         root=dataset_root,
-    ) + [dataset_root]:
+    )
+    subpaths.add(dataset_root)
+
+    for dir_level in subpaths:
         tsv_path, json_path = get_tsv_json_files(dir_level, "*scans")
         columns = []
 

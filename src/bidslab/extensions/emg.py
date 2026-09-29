@@ -49,6 +49,7 @@ from bidslab.utils.exceptions import (
 from bidslab.utils.helpers import (
     add_object_to_sequence,
     append_path,
+    copy_file,
     get_edf_json_files,
     get_entity_from_file,
     get_tsv_json_files,
@@ -650,7 +651,8 @@ class EMGRecording(Recording):
 
             # check for entity mismatches and use first one working
             for file in file_entities_json:
-                if check_entity_mismatch(file, entities):
+                file_nospace = re.sub(r"_space.*$", "", file)
+                if check_entity_mismatch(file_nospace, entities):
                     # load .json file and save it
                     data = parse_json_sidecar(self.root / (file + "_coordsystem.json"))
                     data = clean_dict(data, string_manipulation=to_snakecase)
@@ -678,7 +680,7 @@ class EMGRecording(Recording):
         self._coordinate_systems = value
 
     @property
-    def data(self):
+    def data(self) -> pd.DataFrame:
         # numpydoc ignore=RT01
         """Load or return cached EMG sample data."""
         if self._data is None:
@@ -728,7 +730,7 @@ class EMGRecording(Recording):
         file_name = f"*_{self.recording_id}_"
         _update_description_data(self, file_name)
 
-    def write(self, output_path):
+    def write(self, output_path: str | os.PathLike) -> None:
         """
         Write recording-level EMG files.
 
@@ -742,13 +744,44 @@ class EMGRecording(Recording):
             write_events_to_files(self, self.events, output_path)
 
         # TODO write data files (_emg.bdf/edf/+)
-        # usual path
+        # assumes data is .edf
+        # output_path_emg_data = append_path(output_path, "_emg.edf")
 
-        # TODO write json sidecar (_emg.json)
-        # usual path
+        # write json sidecar (_emg.json)
+        output_path_emg_json = append_path(output_path, "_emg.json")
+        emg_description = self.__dict__.copy()
+        emg_description.pop("electrodes", None)
+        emg_description.pop("channels", None)
+        emg_description.pop("coordinate_systems", None)
+        emg_description.pop("events", None)
+        emg_description.pop("run", None)
 
-        # TODO write channels files (_channels.json, _channels.tsv)
-        # usual path
+        # emg_software_filters = emg_description.pop("software_filters", None)
+        # emg_hardware_filters = emg_description.pop("hardware_filters", None)
+
+        emg_hardware = emg_description.pop("_hardware", None)
+        if emg_hardware is not None:
+            emg_description.update(asdict(self._hardware))
+
+        emg_institution = emg_description.pop("_institution", None)
+        if emg_institution is not None:
+            emg_description.update(asdict(self._institution))
+
+        # add task information to eeg_description
+        task_description = self.run.acquisition.task.__dict__.copy()
+        task_description.pop("acquisitions", None)
+        task_description.pop("_description", None)
+        task_description.pop("task_id", None)
+        task_description.pop("root", None)
+        task_description.pop(
+            "_acquisitions", None
+        )  # idk why it is not removed by clean_dict
+        emg_description.update(task_description)
+
+        emg_description = clean_dict(emg_description)
+        write_json(emg_description, output_path_emg_json)
+
+        # write channels files (_channels.json, _channels.tsv)
         if self.channels:
             output_path_channels_json = append_path(output_path, "_channels.json")
             output_path_channels_tsv = append_path(output_path, "_channels.tsv")
@@ -756,10 +789,22 @@ class EMGRecording(Recording):
             channels_dataframe = self.list_channels()
             channels_dataframe.to_csv(output_path_channels_tsv, sep="\t", index=False)
 
-            # TODO write channels description (.json)
+            # write channels description (.json)
+            channel_description = {}
 
-        # TODO write electrodes files (_electrodes.tsv, _electrodes.json)
-        # usual path
+            columns = self.channels[0].columns
+            for column in columns:
+                column_dict = column.__dict__.copy()
+                column_dict.pop("column_name")
+                channel_description[column.column_name] = column_dict
+
+            channel_description = clean_dict(
+                channel_description,
+                skip_keys_to_manipulate=ManipulateKeysOption.SKIP_TOP_LEVEL_MANIPULATE,
+            )
+            write_json(channel_description, output_path_channels_json)
+
+        #  write electrodes files (_electrodes.tsv, _electrodes.json)
         if self.electrodes:
             output_path_electrodes_json = append_path(output_path, "_electrodes.json")
             output_path_electrodes_tsv = append_path(output_path, "_electrodes.tsv")
@@ -769,7 +814,20 @@ class EMGRecording(Recording):
                 output_path_electrodes_tsv, sep="\t", index=False
             )
 
-            # TODO write electrodes description (.json)
+            # write electrodes description (.json)
+            electrode_description = {}
+
+            columns = self.electrodes[0].columns
+            for column in columns:
+                column_dict = column.__dict__.copy()
+                column_dict.pop("column_name")
+                electrode_description[column.column_name] = column_dict
+
+            electrode_description = clean_dict(
+                electrode_description,
+                skip_keys_to_manipulate=ManipulateKeysOption.SKIP_TOP_LEVEL_MANIPULATE,
+            )
+            write_json(electrode_description, output_path_electrodes_json)
 
         # write coordinate system files (_coordsystem.json)
         # path may contain space entity before recoring
@@ -777,7 +835,7 @@ class EMGRecording(Recording):
             for coordsystem in self.coordinate_systems:
                 # build correct output path (order of entities)
                 if coordsystem.name != "":
-                    if self.virtual_entity:
+                    if self._virtual_entity:
                         output_path_coordsystem = append_path(
                             output_path, f"_space-{coordsystem.name}_coordsystem.json"
                         )
@@ -800,8 +858,13 @@ class EMGRecording(Recording):
                 coord_dict = clean_dict(coord_dict)
                 write_json(coord_dict, output_path=output_path_coordsystem)
 
-        # TODO write photo files if available (_photo.jpg/png/tif)
-        # path can only contain sub, ses, acq, recording
+        # write photo files if available (_photo.jpg/png/tif)
+        photo_files = self.root.glob("*_photo.*")
+        for photo in photo_files:
+            copy_file(
+                source_path=photo,
+                destination_path=output_path.parent,
+            )
 
     def list_channels(self) -> pd.DataFrame:
         """
@@ -1580,7 +1643,7 @@ def get_emg_electrodes(
 
 def _update_description_data(
     cls: EMGRecording | EMGRun | EMGAcquisition, file_name: str
-):
+) -> None:
     """
     Update inherited EMG metadata from nearby sidecars.
 

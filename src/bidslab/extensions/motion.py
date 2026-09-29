@@ -338,7 +338,7 @@ class MotionRun(Run):
         base_path: os.PathLike | str,
         run_id: int,
         virtual_entity: bool = False,
-        **kwargs,
+        **kwargs: Any,
     ):
         super().__init__(
             base_path=base_path, run_id=run_id, virtual_entity=virtual_entity
@@ -380,7 +380,7 @@ class MotionRun(Run):
         self._channels = value
 
     @property
-    def data(self):
+    def data(self) -> pd.DataFrame:
         # numpydoc ignore=RT01
         """Load or return cached motion samples."""
         if self._data is None:
