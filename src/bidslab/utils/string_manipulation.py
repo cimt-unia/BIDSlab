@@ -28,6 +28,13 @@ SHORT_FORMS = {
     "vel": "VEL",
     "hed": "HED",
     "emg": "EMG",
+    "eeg": "EEG",
+    "ecg": "ECG",
+    "eog": "EOG",
+    "po": "PO",
+    "ecog": "ECOG",
+    "seeg": "SEEG",
+    "ieeg": "iEEG",
 }
 
 
@@ -112,17 +119,10 @@ def to_snakecase(string: str) -> str:
     >>> to_snakecase("SamplingFrequency")
     'sampling_frequency'
     """
-    for _, value in SHORT_FORMS.items():
-        if value == "ACCEL":
-            # avoid matching ANGACCEL
-            string = re.sub(r"(?<!ANG)(ACCEL)", f" {value} ", string)
-        elif value == "ID":
-            # avoid matching RRID or BIDS
-            # TODO: make this more robust
-            string = re.sub(r"(?<!RR)(ID)(?!S)", f" {value} ", string)
-        else:
-            string = re.sub(value, f" {value} ", string)
+    for value in sorted(SHORT_FORMS.values(), key=len, reverse=True):
+        string = re.sub(value, f" {value.lower()} ", string)
     string = re.sub(r"[_ ]", "_", string.strip())
+    string = re.sub(r"__", "_", string)
     string = re.sub(r"([a-z])([A-Z])", r"\1_\2", string)
     return string.lower()
 

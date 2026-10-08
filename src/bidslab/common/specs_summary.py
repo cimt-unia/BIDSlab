@@ -115,7 +115,7 @@ class Scan:
         self, base_path: os.PathLike | str, filename: os.PathLike | str, **kwargs: Any
     ) -> None:
         self.filename: pathlib.Path = pathlib.Path(filename)
-        self.columns: Sequence[str] | None = None
+        self.columns: Sequence[Column] | None = None
 
         self.root: pathlib.Path = pathlib.Path(base_path)
 
@@ -402,71 +402,27 @@ class Session(Entity):
         # if no scans exist
         # get scans from exported files
         if not self.scans:
-            self._scans = []
-            assert self.datatypes is not None
-            for key in self.datatypes:
-                match key:
-                    case "motion":
-                        # get the motion.tsv filepath
-                        # idk where to get acq_time from
-                        files = list(
-                            pathlib.Path(output_path.parent / "motion").glob(
-                                "*_motion.tsv"
-                            )
-                        )
-                        for file in files:
-                            add_object_to_sequence(
-                                entity_list=self._scans,
-                                entity_class=Scan,
-                                base_path=self.root,
-                                filename="motion/" + file.name,
-                            )
-                    case "emg":
-                        files = list(
-                            pathlib.Path(output_path.parent / "emg").glob("*.bdf")
-                        )
-                        files.extend(
-                            list(pathlib.Path(output_path.parent / "emg").glob("*.edf"))
-                        )
-                        files.extend(
-                            list(
-                                pathlib.Path(output_path.parent / "emg").glob("*.bdf+")
-                            )
-                        )
-                        files.extend(
-                            list(
-                                pathlib.Path(output_path.parent / "emg").glob("*.edf+")
-                            )
-                        )
-                        for file in files:
-                            add_object_to_sequence(
-                                entity_list=self._scans,
-                                entity_class=Scan,
-                                base_path=self.root,
-                                filename="emg/" + file.name,
-                            )
-                    case "eeg":
-                        files = list(
-                            pathlib.Path(output_path.parent / "eeg").glob("*.vhdr")
-                        )
-                        files.extend(
-                            list(pathlib.Path(output_path.parent / "eeg").glob("*.set"))
-                        )
-                        for file in files:
-                            add_object_to_sequence(
-                                entity_list=self._scans,
-                                entity_class=Scan,
-                                base_path=self.root,
-                                filename="eeg/" + file.name,
-                            )
-                    case _:
-                        if not get_settings_value("IGNORE_NOT_IMPLEMENTED"):
-                            raise NotImplementedError
+            get_scans_from_exported_files(self, output_path)
 
         # write scans.tsv / scans.json file
-        if self.scans:
-            data_json = self.scans[0].columns
-            data_tsv = pd.DataFrame(scan.__dict__ for scan in self.scans)
+        if self._scans is not None:
+            data_json = {}
+            for scan in self._scans:
+                if scan.columns is None:
+                    continue
+                columns = scan.columns
+                column_names = []
+                for column in columns:
+                    column_dict = column.__dict__.copy()
+                    column_names.append(column_dict.pop("column_name"))
+                    column_dict = clean_dict(
+                        column_dict,
+                        skip_keys_to_manipulate=ManipulateKeysOption.NO_MANIPULATION,
+                    )
+                    if column_dict:
+                        data_json[column.column_name] = column_dict
+
+            data_tsv = pd.DataFrame(scan.__dict__ for scan in self._scans)
             data_tsv = data_tsv.drop(columns=["columns", "root"], errors="ignore")
 
             if isinstance(data_json, dict):
@@ -873,3 +829,87 @@ def get_scans_from_files(
                 )
 
     return scans
+
+
+def get_scans_from_exported_files(cls: Session, output_path: os.PathLike | str) -> None:
+    """
+    Create the scans and add them to the cls object.
+
+    Parameters
+    ----------
+    cls : Session
+        The session object where the scans should be added to.
+    output_path : os.PathLike | str
+        The output path where the files were exported.
+
+    Returns
+    -------
+    None
+        Scans in the cls object are updated.
+
+    Notes
+    -----
+    Creating the scans in this way means that the acquisition time is not included.
+    """
+    output_path = pathlib.Path(output_path)
+    cls._scans = []
+    assert cls.datatypes is not None
+    for key in cls.datatypes:
+        match key:
+            case "motion":
+                files = list(
+                    pathlib.Path(output_path.parent / "motion").glob("*_motion.tsv")
+                )
+                for file in files:
+                    add_object_to_sequence(
+                        entity_list=cls._scans,
+                        entity_class=Scan,
+                        base_path=cls.root,
+                        filename="motion/" + file.name,
+                    )
+            case "emg":
+                emg_path = output_path.parent / "emg"
+                extensions = ["*.bdf", "*.edf", "*.bdf+", "*.edf+"]
+
+                files = []
+                for extension in extensions:
+                    files.extend(emg_path.glob(extension))
+
+                for file in files:
+                    add_object_to_sequence(
+                        entity_list=cls._scans,
+                        entity_class=Scan,
+                        base_path=cls.root,
+                        filename="emg/" + file.name,
+                    )
+            case "eeg":
+                eeg_path = output_path.parent / "eeg"
+                extensions = ["*.bdf", "*.edf", "*.bdf+", "*.edf+", "*.vhdr", "*.set"]
+
+                files = []
+                for extension in extensions:
+                    files.extend(eeg_path.glob(extension))
+                for file in files:
+                    add_object_to_sequence(
+                        entity_list=cls._scans,
+                        entity_class=Scan,
+                        base_path=cls.root,
+                        filename="eeg/" + file.name,
+                    )
+            case "ieeg":
+                ieeg_path = output_path.parent / "ieeg"
+                extensions = ["*.edf", "*.edf+", "*.vhdr", "*.set", "*.nwb", "*.mefd"]
+
+                files = []
+                for extension in extensions:
+                    files.extend(ieeg_path.glob(extension))
+                for file in files:
+                    add_object_to_sequence(
+                        entity_list=cls._scans,
+                        entity_class=Scan,
+                        base_path=cls.root,
+                        filename="ieeg/" + file.name,
+                    )
+            case _:
+                if not get_settings_value("IGNORE_NOT_IMPLEMENTED"):
+                    raise NotImplementedError

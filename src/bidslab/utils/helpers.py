@@ -403,40 +403,6 @@ def get_entity_from_file(path: pathlib.Path, entity_name: str) -> dict[str, str]
     return entities
 
 
-def get_entity_with_ending_from_file(
-    path: pathlib.Path,
-    entity_name: str,
-    file_ending: str,
-) -> dict[str, str]:
-    """
-    Extract entity values from a file name based on the specified entity name.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        The path of the file from which to extract the entity.
-    entity_name : str
-        The name of the entity to extract.
-    file_ending : str
-        The ending the files need to have to be valid candidates.
-
-    Returns
-    -------
-    dict[str, str]
-        A dictionary containing the extracted entity and its value.
-    """
-    entities = {}
-    entity_name = entity_name.replace(" ", "")
-    pattern = re.compile(
-        rf"(?P<entity>({entity_name}))-(?P<value>[a-zA-Z0-9]+)*{file_ending}"
-    )
-
-    for match in pattern.finditer(path.stem):
-        entities[match.group("entity")] = match.group("value")
-
-    return entities
-
-
 def get_tsv_json_files(
     path: pathlib.Path, file_name: str
 ) -> tuple[pathlib.Path | None, pathlib.Path | None]:

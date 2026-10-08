@@ -22,7 +22,9 @@ from warnings import warn
 
 from bidslab.common.base import BaseTask
 from bidslab.common.specs_task import Task
+from bidslab.extensions.eeg import EEGTask, parse_eeg_json_sidecar
 from bidslab.extensions.emg import EMGTask, parse_emg_json_sidecar
+from bidslab.extensions.ieeg import IEEGTask, parse_ieeg_json_sidecar
 from bidslab.extensions.motion import MotionTask, parse_motion_json_sidecar
 from bidslab.settings import get_settings_value
 from bidslab.utils.dict_manipulation import ManipulateKeysOption, clean_dict
@@ -147,56 +149,7 @@ class Datatype:
                         )
                     except KeyError:
                         continue
-                for task_id in task_ids:
-                    _, json_path = get_tsv_json_files(
-                        self.root, f"*task-{task_id}*_{self.datatype_name}"
-                    )
-
-                    if json_path:
-                        if self.datatype_name == "motion":
-                            data = parse_motion_json_sidecar(json_path)
-                            task_name = data["task"].pop("TaskName")
-                            self._tasks.update(
-                                {
-                                    "task-" + task_id: MotionTask(
-                                        task_id="task-" + task_id,
-                                        task_name=task_name,
-                                        base_path=self.root,
-                                        datatype=self,
-                                        **data["task"],
-                                    )
-                                }
-                            )
-                        elif self.datatype_name == "emg":
-                            data = parse_emg_json_sidecar(json_path)
-                            data_desc = clean_dict(
-                                data,
-                                skip_keys_to_manipulate=ManipulateKeysOption.ALL_KEYS_MANIPULATE,
-                                string_manipulation=to_snakecase,
-                            )
-                            # TODO: add electrodes here
-                            task_description = data_desc.pop("task", None)
-                            task_name = task_description.pop("task_name", None)
-                            description = {
-                                "_description": data_desc,
-                                **task_description,
-                            }
-                            self._tasks.update(
-                                {
-                                    "task-" + task_id: EMGTask(
-                                        task_id="task-" + task_id,
-                                        task_name=task_name,
-                                        base_path=self.root,
-                                        datatype=self,
-                                        **description,
-                                    )
-                                }
-                            )
-                        elif not get_settings_value("IGNORE_NOT_IMPLEMENTED"):
-                            raise NotImplementedError
-
-                    elif not get_settings_value("IGNORE_NOT_IMPLEMENTED"):
-                        raise NotImplementedError
+                create_tasks(self, task_ids)
 
             elif not get_settings_value("IGNORE_NOT_IMPLEMENTED"):
                 raise NotImplementedError
@@ -278,3 +231,123 @@ class Datatype:
         >>> datatype.write("out/sub-01_ses-01")
         """
         write_entities(output_path, self.tasks.values())
+
+
+def create_tasks(cls: Datatype, task_ids: set[str]) -> None:
+    """
+    Create the tasks and add them to the cls object.
+
+    Parameters
+    ----------
+    cls : Datatype
+        The datatype object where the tasks should be added to.
+    task_ids : set[str]
+        Set of task ids found for the respective datatype.
+
+    Returns
+    -------
+    None
+        Tasks in the cls object are updated.
+    """
+    # create the task and update the tasks dict in the cls object
+
+    for task_id in task_ids:
+        _, json_path = get_tsv_json_files(
+            cls.root, f"*task-{task_id}*_{cls.datatype_name}"
+        )
+        if not json_path:
+            raise FileNotFoundError
+
+        match cls.datatype_name:
+            case "eeg":
+                data = parse_eeg_json_sidecar(json_path)
+                data_desc = clean_dict(
+                    data,
+                    skip_keys_to_manipulate=ManipulateKeysOption.ALL_KEYS_MANIPULATE,
+                    string_manipulation=to_snakecase,
+                )
+                # TODO: add electrodes here like with emg
+                task_description = data_desc.pop("task", None)
+                task_name = task_description.pop("task_name", None)
+                description = {
+                    "_description": data_desc,
+                    **task_description,
+                }
+                cls._tasks.update(
+                    {
+                        "task-" + task_id: EEGTask(
+                            task_id="task-" + task_id,
+                            task_name=task_name,
+                            base_path=cls.root,
+                            datatype=cls,
+                            **description,
+                        )
+                    }
+                )
+            case "ieeg":
+                data = parse_ieeg_json_sidecar(json_path)
+                data_desc = clean_dict(
+                    data,
+                    skip_keys_to_manipulate=ManipulateKeysOption.ALL_KEYS_MANIPULATE,
+                    string_manipulation=to_snakecase,
+                )
+                # TODO: add electrodes here like with emg
+                task_description = data_desc.pop("task", None)
+                task_name = task_description.pop("task_name", None)
+                description = {
+                    "_description": data_desc,
+                    **task_description,
+                }
+                cls._tasks.update(
+                    {
+                        "task-" + task_id: IEEGTask(
+                            task_id="task-" + task_id,
+                            task_name=task_name,
+                            base_path=cls.root,
+                            datatype=cls,
+                            **description,
+                        )
+                    }
+                )
+            case "emg":
+                data = parse_emg_json_sidecar(json_path)
+                data_desc = clean_dict(
+                    data,
+                    skip_keys_to_manipulate=ManipulateKeysOption.ALL_KEYS_MANIPULATE,
+                    string_manipulation=to_snakecase,
+                )
+                # TODO: add electrodes here
+                task_description = data_desc.pop("task", None)
+                task_name = task_description.pop("task_name", None)
+                description = {
+                    "_description": data_desc,
+                    **task_description,
+                }
+                cls._tasks.update(
+                    {
+                        "task-" + task_id: EMGTask(
+                            task_id="task-" + task_id,
+                            task_name=task_name,
+                            base_path=cls.root,
+                            datatype=cls,
+                            **description,
+                        )
+                    }
+                )
+            case "motion":
+                data = parse_motion_json_sidecar(json_path)
+                task_name = data["task"].pop("TaskName")
+                cls._tasks.update(
+                    {
+                        "task-" + task_id: MotionTask(
+                            task_id="task-" + task_id,
+                            task_name=task_name,
+                            base_path=cls.root,
+                            datatype=cls,
+                            **data["task"],
+                        )
+                    }
+                )
+            case _:
+                if not get_settings_value("IGNORE_NOT_IMPLEMENTED"):
+                    raise NotImplementedError

@@ -577,6 +577,8 @@ class PhysioRecording(Recording):
         Information about the hardware used for this recording.
     virtual_entity : bool
         Parameter to distinguish virtual and real entities.
+    **kwargs
+        Optional recording metadata (used for eyetracking).
 
     Attributes
     ----------
@@ -618,6 +620,7 @@ class PhysioRecording(Recording):
         physio_type: str | None = None,
         hardware: Hardware | None = None,
         virtual_entity: bool = False,
+        **kwargs: Any,
     ):
         super().__init__(
             base_path=base_path,
@@ -633,6 +636,9 @@ class PhysioRecording(Recording):
 
         self._data: Any | None = None
         self._events: Sequence[Event] | None = None
+
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     @property
     def data(self) -> pd.DataFrame:
@@ -1532,10 +1538,11 @@ def write_events_to_files(
         # copy files into the stimuli directory
         unique_files = set(data_tsv["stim_file"])
         for file in unique_files:
-            copy_file(
-                source_path=dataset_root / "stimuli" / str(file),
-                destination_path=stimuli_path,
-            )
+            if file != "n/a":
+                copy_file(
+                    source_path=dataset_root / "stimuli" / str(file),
+                    destination_path=stimuli_path,
+                )
 
     if compressed:
         data_tsv.to_csv(
