@@ -19,7 +19,8 @@ from typing import TYPE_CHECKING, Protocol, TypeVar
 
 if TYPE_CHECKING:
     from bidslab.common.base import BaseAcquisition, BaseTask, Entity
-    from bidslab.common.specs_misc import Run
+    from bidslab.common.specs_misc import Event, Run
+    from bidslab.common.specs_summary import Scan
 
 
 #: TypeVar bound to :py:class:`bidslab.common.base.BaseAcquisition` and its subclasses.
@@ -33,6 +34,12 @@ R = TypeVar("R", bound="Run")
 
 #: TypeVar bound to :py:class:`bidslab.common.base.BaseTask` and its subclasses.
 T = TypeVar("T", bound="BaseTask")
+
+#: TypeVar bound to :py:class:`bidslab.common.specs_summary.Scan` and its subclasses.
+SC = TypeVar("SC", bound="Scan")
+
+#: TypeVar bound to :py:class:`bidslab.common.specs_misc.Event` and its subclasses.
+EV = TypeVar("EV", bound="Event")
 
 
 class Writable(Protocol):

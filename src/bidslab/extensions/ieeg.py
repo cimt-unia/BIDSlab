@@ -236,7 +236,7 @@ class IEEGChannel:
         """Return the validated IEEG channel type."""
         return self._type
 
-    @type.setter
+    @type.setter  # noqa: A003
     def type(self, value: str) -> None:
         # numpydoc ignore=GL08
         if value not in IEEG_CHANNEL_TYPE_ALLOWED_FIELD_ENTRIES:
@@ -394,7 +394,7 @@ class IEEGSpace(Entity):
         return self._run
 
     @run.setter
-    def run(self, value: "Run") -> None:
+    def run(self, value: "IEEGRun") -> None:
         # numpydoc ignore=GL08
         self._run = value
 
@@ -482,10 +482,11 @@ class IEEGSpace(Entity):
             electrode_description = {}
 
             columns = self.electrodes[0].columns
-            for column in columns:
-                column_dict = column.__dict__.copy()
-                column_dict.pop("column_name")
-                electrode_description[column.column_name] = column_dict
+            if columns is not None:
+                for column in columns:
+                    column_dict = column.__dict__.copy()
+                    column_dict.pop("column_name")
+                    electrode_description[column.column_name] = column_dict
 
             electrode_description = clean_dict(
                 electrode_description,
@@ -709,7 +710,7 @@ class IEEGRun(Run):
         return self._spaces
 
     @spaces.setter
-    def spaces(self, value: dict[str | IEEGSpace]) -> None:
+    def spaces(self, value: dict[str, IEEGSpace]) -> None:
         # numpydoc ignore=GL08
         self._spaces = value
 
@@ -776,12 +777,14 @@ class IEEGRun(Run):
         # numpydoc ignore=RT01
         """Load or return cached IEEG sample data."""
         if self._data is None:
-            file_name = f"*{self.acquisition.task.task_id}*"
-            file_name += (
-                f"_{self.acquisition.acquisition_id}"
-                if not self.acquisition._virtual_entity
-                else ""
-            )
+            file_name = "*"
+            if self.acquisition is not None:
+                file_name = f"{self.acquisition.task.task_id}*"
+                file_name += (
+                    f"_{self.acquisition.acquisition_id}"
+                    if not self.acquisition._virtual_entity
+                    else ""
+                )
             file_name += f"_{self.run_id}" if not self._virtual_entity else ""
             edf_path, _ = get_edf_json_files(
                 self.root,
@@ -789,8 +792,9 @@ class IEEGRun(Run):
             )
             data_frame = load_edf_data(path=edf_path)
             column_names = {}
-            for channel_number, channel in enumerate(self.channels):
-                column_names[channel_number] = channel.name
+            if self.channels is not None:
+                for channel_number, channel in enumerate(self.channels):
+                    column_names[channel_number] = channel.name
             data_frame.rename(columns=column_names, inplace=True)
 
             self._data = data_frame
@@ -830,6 +834,8 @@ class IEEGRun(Run):
         output_path : os.PathLike | str
             The path where the output files will be written.
         """
+        output_path = pathlib.Path(output_path)
+
         # write eeg json sidecar and eeg data
         output_path_eeg_json = append_path(output_path, "_eeg.json")
         eeg_description = self.__dict__.copy()
@@ -842,24 +848,25 @@ class IEEGRun(Run):
         # eeg_software_filters = eeg_description.pop("software_filters", None)
         # eeg_hardware_filters = eeg_description.pop("hardware_filters", None)
 
-        eeg_hardware = eeg_description.pop("_hardware", None)
-        if eeg_hardware is not None:
+        eeg_description.pop("_hardware", None)
+        if self._hardware is not None:
             eeg_description.update(asdict(self._hardware))
 
-        eeg_institution = eeg_description.pop("_institution", None)
-        if eeg_institution is not None:
+        eeg_description.pop("_institution", None)
+        if self._institution is not None:
             eeg_description.update(asdict(self._institution))
 
         # add task information to eeg_description
-        task_description = self.acquisition.task.__dict__.copy()
-        task_description.pop("acquisitions", None)
-        task_description.pop("_description", None)
-        task_description.pop("task_id", None)
-        task_description.pop("root", None)
-        task_description.pop(
-            "_acquisitions", None
-        )  # idk why it is not removed by clean_dict
-        eeg_description.update(task_description)
+        if self.acquisition is not None:
+            task_description = self.acquisition.task.__dict__.copy()
+            task_description.pop("acquisitions", None)
+            task_description.pop("_description", None)
+            task_description.pop("task_id", None)
+            task_description.pop("root", None)
+            task_description.pop(
+                "_acquisitions", None
+            )  # idk why it is not removed by clean_dict
+            eeg_description.update(task_description)
 
         eeg_description = clean_dict(eeg_description)
         write_json(eeg_description, output_path_eeg_json)
@@ -884,10 +891,11 @@ class IEEGRun(Run):
             channel_description = {}
 
             columns = self.channels[0].columns
-            for column in columns:
-                column_dict = column.__dict__.copy()
-                column_dict.pop("column_name")
-                channel_description[column.column_name] = column_dict
+            if columns is not None:
+                for column in columns:
+                    column_dict = column.__dict__.copy()
+                    column_dict.pop("column_name")
+                    channel_description[column.column_name] = column_dict
 
             channel_description = clean_dict(
                 channel_description,
@@ -1079,9 +1087,23 @@ class IEEGAcquisition(BaseAcquisition):
         return self._runs
 
     @runs.setter
-    def runs(self, value: MutableSequence[IEEGRun] | dict[str, IEEGRun]) -> None:
+    def runs(self, value: MutableSequence[int | IEEGRun] | dict[str, IEEGRun]) -> None:
         # numpydoc ignore=GL08
         if isinstance(value, MutableSequence):
+            if all(isinstance(v, int) for v in value):
+                self._runs = {}
+                for v in value:
+                    assert isinstance(v, int)
+                    self._runs.update(
+                        {
+                            f"run-{v}": IEEGRun(
+                                base_path=self.root,
+                                run_id=v,
+                                acquisition=self,
+                                **self._description,
+                            )
+                        }
+                    )
             if all(isinstance(v, IEEGRun) for v in value):
                 self._runs = {}
                 for v in value:
@@ -1146,6 +1168,10 @@ class IEEGTask(BaseTask):
         Root directory containing task-specific EEG files.
     task_name : str
         BIDS task label used to resolve files such as ``task-<label>``.
+    cog_atlas_id : str | None, optional
+        CogAtlasID of the corresponding Cognitive Atlas Task term.
+    cog_po_id : str | None, optional
+        CogPOID of the corresponding CogPO term.
     **kwargs : str | Datatype | MutableSequence | MutableMapping
         Optional task metadata, datatype information, inherited description
         blocks, and acquisition objects.
@@ -1175,6 +1201,8 @@ class IEEGTask(BaseTask):
         self,
         base_path: os.PathLike | str,
         task_name: str,
+        cog_atlas_id: str | None = None,
+        cog_po_id: str | None = None,
         **kwargs: "str | Datatype | MutableSequence | MutableMapping",
     ) -> None:
         description = kwargs.pop("_description", {})
@@ -1184,8 +1212,8 @@ class IEEGTask(BaseTask):
             )
         self._description: MutableMapping = description
 
-        self.cog_atlas_id: str | None = kwargs.pop("cog_atlas_id", None)
-        self.cog_po_id: str | None = kwargs.pop("cog_po_id", None)
+        self.cog_atlas_id: str | None = cog_atlas_id
+        self.cog_po_id: str | None = cog_po_id
 
         super().__init__(
             base_path=base_path, task_name=task_name, virtual_entity=False, **kwargs
@@ -1475,8 +1503,8 @@ def _update_description_data(
             cls._description.update(data_clean)
     else:
         warn(
-            f"No iEEG JSON sidecar file found for {cls._entity_name} {cls._entity_id} "
-            f"in {cls.root}",
+            f"No iEEG JSON sidecar file found for {cls._entity_name} {cls._entity_id}"
+            f" in {cls.root}",
             FileNotFoundWarning,
         )
 
@@ -1489,7 +1517,7 @@ def _update_description_data(
             cls._description.update(electrodes)
     else:
         warn(
-            f"No iEEG electrodes TSV and JSON sidecar file found for {cls._entity_name} "
-            f"{cls._entity_id} in {cls.root}",
+            f"No iEEG electrodes TSV and JSON sidecar file found for {cls._entity_name}"
+            f" {cls._entity_id} in {cls.root}",
             FileNotFoundWarning,
         )

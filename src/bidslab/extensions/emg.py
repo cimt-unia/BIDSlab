@@ -318,7 +318,7 @@ class EMGChannel:
         """Return the validated EMG channel type."""
         return self._type
 
-    @type.setter
+    @type.setter  # noqa: A003
     def type(self, value: str) -> None:
         # numpydoc ignore=GL08
         if value not in EMG_CHANNEL_TYPE_ALLOWED_FIELD_ENTRIES:
@@ -684,13 +684,17 @@ class EMGRecording(Recording):
         # numpydoc ignore=RT01
         """Load or return cached EMG sample data."""
         if self._data is None:
-            file_name = f"*{self.run.acquisition.task.task_id}*"
-            file_name += (
-                f"_{self.run.acquisition.acquisition_id}"
-                if not self.run.acquisition._virtual_entity
-                else ""
-            )
-            file_name += f"_{self.run.run_id}" if not self.run._virtual_entity else ""
+            file_name = "*"
+            if self.run is not None and self.run.acquisition is not None:
+                file_name = f"*{self.run.acquisition.task.task_id}*"
+                file_name += (
+                    f"_{self.run.acquisition.acquisition_id}"
+                    if not self.run.acquisition._virtual_entity
+                    else ""
+                )
+                file_name += (
+                    f"_{self.run.run_id}" if not self.run._virtual_entity else ""
+                )
             file_name += f"_{self.recording_id}" if not self._virtual_entity else ""
             edf_path, _ = get_edf_json_files(
                 self.root,
@@ -698,8 +702,9 @@ class EMGRecording(Recording):
             )
             data_frame = load_edf_data(path=edf_path)
             column_names = {}
-            for channel_number, channel in enumerate(self.channels):
-                column_names[channel_number] = channel.name
+            if self.channels is not None:
+                for channel_number, channel in enumerate(self.channels):
+                    column_names[channel_number] = channel.name
             data_frame.rename(columns=column_names, inplace=True)
 
             self._data = data_frame
@@ -730,7 +735,7 @@ class EMGRecording(Recording):
         file_name = f"*_{self.recording_id}_"
         _update_description_data(self, file_name)
 
-    def write(self, output_path: str | os.PathLike) -> None:
+    def write(self, output_path: str | os.PathLike) -> None:  # noqa: C901
         """
         Write recording-level EMG files.
 
@@ -739,6 +744,8 @@ class EMGRecording(Recording):
         output_path : os.PathLike | str
             The path where the output files will be written.
         """
+        output_path = pathlib.Path(output_path)
+
         # write events files
         if self.events:
             write_events_to_files(self, self.events, output_path)
@@ -759,24 +766,25 @@ class EMGRecording(Recording):
         # emg_software_filters = emg_description.pop("software_filters", None)
         # emg_hardware_filters = emg_description.pop("hardware_filters", None)
 
-        emg_hardware = emg_description.pop("_hardware", None)
-        if emg_hardware is not None:
+        emg_description.pop("_hardware", None)
+        if self._hardware is not None:
             emg_description.update(asdict(self._hardware))
 
-        emg_institution = emg_description.pop("_institution", None)
-        if emg_institution is not None:
+        emg_description.pop("_institution", None)
+        if self._institution is not None:
             emg_description.update(asdict(self._institution))
 
         # add task information to eeg_description
-        task_description = self.run.acquisition.task.__dict__.copy()
-        task_description.pop("acquisitions", None)
-        task_description.pop("_description", None)
-        task_description.pop("task_id", None)
-        task_description.pop("root", None)
-        task_description.pop(
-            "_acquisitions", None
-        )  # idk why it is not removed by clean_dict
-        emg_description.update(task_description)
+        if self.run is not None and self.run.acquisition is not None:
+            task_description = self.run.acquisition.task.__dict__.copy()
+            task_description.pop("acquisitions", None)
+            task_description.pop("_description", None)
+            task_description.pop("task_id", None)
+            task_description.pop("root", None)
+            task_description.pop(
+                "_acquisitions", None
+            )  # idk why it is not removed by clean_dict
+            emg_description.update(task_description)
 
         emg_description = clean_dict(emg_description)
         write_json(emg_description, output_path_emg_json)
@@ -793,10 +801,11 @@ class EMGRecording(Recording):
             channel_description = {}
 
             columns = self.channels[0].columns
-            for column in columns:
-                column_dict = column.__dict__.copy()
-                column_dict.pop("column_name")
-                channel_description[column.column_name] = column_dict
+            if columns is not None:
+                for column in columns:
+                    column_dict = column.__dict__.copy()
+                    column_dict.pop("column_name")
+                    channel_description[column.column_name] = column_dict
 
             channel_description = clean_dict(
                 channel_description,
@@ -818,10 +827,11 @@ class EMGRecording(Recording):
             electrode_description = {}
 
             columns = self.electrodes[0].columns
-            for column in columns:
-                column_dict = column.__dict__.copy()
-                column_dict.pop("column_name")
-                electrode_description[column.column_name] = column_dict
+            if columns is not None:
+                for column in columns:
+                    column_dict = column.__dict__.copy()
+                    column_dict.pop("column_name")
+                    electrode_description[column.column_name] = column_dict
 
             electrode_description = clean_dict(
                 electrode_description,
@@ -840,12 +850,10 @@ class EMGRecording(Recording):
                             output_path, f"_space-{coordsystem.name}_coordsystem.json"
                         )
                     else:
-                        filename = output_path.name
-                        filename.split("_")
+                        filename = output_path.name.split("_")
                         filename.append(filename[-1])
-                        filename[-1] = f"space-{coordsystem.name}"
-                        name = ""
-                        name = (name + "_" + part for part in filename)
+                        filename[-2] = f"space-{coordsystem.name}"
+                        name = "_".join(filename)
                         name = name + "_coordsystem.json"
                         output_path_coordsystem = append_path(output_path.parent, name)
                 else:
@@ -860,6 +868,7 @@ class EMGRecording(Recording):
 
         # write photo files if available (_photo.jpg/png/tif)
         photo_files = self.root.glob("*_photo.*")
+        output_path = pathlib.Path(output_path)
         for photo in photo_files:
             copy_file(
                 source_path=photo,

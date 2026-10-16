@@ -201,7 +201,7 @@ class TestCopyFile:
 
     def test_copy_file_no_existing_source(self, create_binary_test_file):
         # Setup
-        source, destination, binary_data = create_binary_test_file
+        source, destination, _binary_data = create_binary_test_file
         source.unlink()
 
         # Test

@@ -404,7 +404,7 @@ class Dataset:
             set_attr_from_dict(self, kwargs)
 
         if self.dataset_doi:
-            check_if_valid_uri(self.dataset_doi)
+            check_if_valid_uri(self.dataset_doi)  # type: ignore[unreachable]
 
     def __repr__(self) -> str:
         """Return a string representation of the Dataset object."""
@@ -562,8 +562,6 @@ class Dataset:
 
         if self.name is None and not override_validation:
             raise FieldMissingError("Field `Name` is required in Dataset")
-        if self.bids_version is None and not override_validation:
-            raise FieldMissingError("Field `BIDSVersion` is required in Dataset")
         if self.readme_path is None and not override_validation:
             raise FieldMissingError("File `README` is required")
 
@@ -823,9 +821,13 @@ class Dataset:
                         row = {}
                         if phenotype.participant:
                             row["participant_id"] = phenotype.participant.participant_id
-                        for key, value in phenotype.__dict__.items():
-                            if key not in COLUMNS_TO_REMOVE_FROM_TSV:
-                                row[key] = value
+                        row.update(
+                            {
+                                key: value
+                                for key, value in phenotype.__dict__.items()
+                                if key not in COLUMNS_TO_REMOVE_FROM_TSV
+                            }
+                        )
                         rows.append(row)
 
             phenotype_df = pd.DataFrame(rows)

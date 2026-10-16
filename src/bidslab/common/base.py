@@ -237,7 +237,7 @@ class BaseTask(Entity, ABC):
         self._datatype = value
 
 
-class BaseAcquisition(Entity, Generic[R], ABC):
+class BaseAcquisition(Entity, Generic[R], ABC):  # noqa: UP046
     """
     Abstract base class for Acquisition entities in BIDSlab.
 

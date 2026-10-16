@@ -250,7 +250,7 @@ def create_tasks(cls: Datatype, task_ids: set[str]) -> None:
         Tasks in the cls object are updated.
     """
     # create the task and update the tasks dict in the cls object
-
+    cls._tasks = {}
     for task_id in task_ids:
         _, json_path = get_tsv_json_files(
             cls.root, f"*task-{task_id}*_{cls.datatype_name}"

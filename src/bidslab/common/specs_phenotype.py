@@ -133,8 +133,8 @@ class MeasurementTool:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-        if self.term_url and not get_settings_value("OVERRIDE_VALIDATION"):
-            check_if_valid_uri(self.term_url)
+        if self.term_url and not get_settings_value("OVERRIDE_VALIDATION"):  # type: ignore[unreachable]
+            check_if_valid_uri(self.term_url)  # type: ignore[unreachable]
 
     def __repr__(self) -> str:
         """Return a string representation of the MeasurementTool object."""

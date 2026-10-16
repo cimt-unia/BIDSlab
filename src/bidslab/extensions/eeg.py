@@ -267,7 +267,7 @@ class EEGChannel:
         """Return the validated EEG channel type."""
         return self._type
 
-    @type.setter
+    @type.setter  # noqa: A003
     def type(self, value: str) -> None:
         # numpydoc ignore=GL08
         if value not in EEG_CHANNEL_TYPE_ALLOWED_FIELD_ENTRIES:
@@ -415,7 +415,7 @@ class EEGSpace(Entity):
         return self._run
 
     @run.setter
-    def run(self, value: "Run") -> None:
+    def run(self, value: "EEGRun") -> None:
         # numpydoc ignore=GL08
         self._run = value
 
@@ -503,10 +503,11 @@ class EEGSpace(Entity):
             electrode_description = {}
 
             columns = self.electrodes[0].columns
-            for column in columns:
-                column_dict = column.__dict__.copy()
-                column_dict.pop("column_name")
-                electrode_description[column.column_name] = column_dict
+            if columns is not None:
+                for column in columns:
+                    column_dict = column.__dict__.copy()
+                    column_dict.pop("column_name")
+                    electrode_description[column.column_name] = column_dict
 
             electrode_description = clean_dict(
                 electrode_description,
@@ -728,7 +729,7 @@ class EEGRun(Run):
         return self._spaces
 
     @spaces.setter
-    def spaces(self, value: dict[str | EEGSpace]) -> None:
+    def spaces(self, value: dict[str, EEGSpace]) -> None:
         # numpydoc ignore=GL08
         self._spaces = value
 
@@ -795,12 +796,14 @@ class EEGRun(Run):
         # numpydoc ignore=RT01
         """Load or return cached EEG sample data."""
         if self._data is None:
-            file_name = f"*{self.acquisition.task.task_id}*"
-            file_name += (
-                f"_{self.acquisition.acquisition_id}"
-                if not self.acquisition._virtual_entity
-                else ""
-            )
+            file_name = "*"
+            if self.acquisition is not None:
+                file_name = f"{self.acquisition.task.task_id}*"
+                file_name += (
+                    f"_{self.acquisition.acquisition_id}"
+                    if not self.acquisition._virtual_entity
+                    else ""
+                )
             file_name += f"_{self.run_id}" if not self._virtual_entity else ""
             edf_path, _ = get_edf_json_files(
                 self.root,
@@ -808,8 +811,9 @@ class EEGRun(Run):
             )
             data_frame = load_edf_data(path=edf_path)
             column_names = {}
-            for channel_number, channel in enumerate(self.channels):
-                column_names[channel_number] = channel.name
+            if self.channels is not None:
+                for channel_number, channel in enumerate(self.channels):
+                    column_names[channel_number] = channel.name
             data_frame.rename(columns=column_names, inplace=True)
 
             self._data = data_frame
@@ -861,24 +865,25 @@ class EEGRun(Run):
         # eeg_software_filters = eeg_description.pop("software_filters", None)
         # eeg_hardware_filters = eeg_description.pop("hardware_filters", None)
 
-        eeg_hardware = eeg_description.pop("_hardware", None)
-        if eeg_hardware is not None:
+        eeg_description.pop("_hardware", None)
+        if self._hardware is not None:
             eeg_description.update(asdict(self._hardware))
 
-        eeg_institution = eeg_description.pop("_institution", None)
-        if eeg_institution is not None:
+        eeg_description.pop("_institution", None)
+        if self._institution is not None:
             eeg_description.update(asdict(self._institution))
 
         # add task information to eeg_description
-        task_description = self.acquisition.task.__dict__.copy()
-        task_description.pop("acquisitions", None)
-        task_description.pop("_description", None)
-        task_description.pop("task_id", None)
-        task_description.pop("root", None)
-        task_description.pop(
-            "_acquisitions", None
-        )  # idk why it is not removed by clean_dict
-        eeg_description.update(task_description)
+        if self.acquisition is not None:
+            task_description = self.acquisition.task.__dict__.copy()
+            task_description.pop("acquisitions", None)
+            task_description.pop("_description", None)
+            task_description.pop("task_id", None)
+            task_description.pop("root", None)
+            task_description.pop(
+                "_acquisitions", None
+            )  # idk why it is not removed by clean_dict
+            eeg_description.update(task_description)
 
         eeg_description = clean_dict(eeg_description)
         write_json(eeg_description, output_path_eeg_json)
@@ -903,10 +908,11 @@ class EEGRun(Run):
             channel_description = {}
 
             columns = self.channels[0].columns
-            for column in columns:
-                column_dict = column.__dict__.copy()
-                column_dict.pop("column_name")
-                channel_description[column.column_name] = column_dict
+            if columns is not None:
+                for column in columns:
+                    column_dict = column.__dict__.copy()
+                    column_dict.pop("column_name")
+                    channel_description[column.column_name] = column_dict
 
             channel_description = clean_dict(
                 channel_description,
@@ -916,6 +922,7 @@ class EEGRun(Run):
 
         # write photo files if available (_photo.jpg/png/tif)
         photo_files = self.root.glob("*_photo.*")
+        output_path = pathlib.Path(output_path)
         for photo in photo_files:
             copy_file(
                 source_path=photo,
@@ -1098,9 +1105,22 @@ class EEGAcquisition(BaseAcquisition):
         return self._runs
 
     @runs.setter
-    def runs(self, value: MutableSequence[EEGRun] | dict[str, EEGRun]) -> None:
+    def runs(self, value: MutableSequence[int | EEGRun] | dict[str, EEGRun]) -> None:
         # numpydoc ignore=GL08
         if isinstance(value, MutableSequence):
+            if all(isinstance(v, int) for v in value):
+                self._runs = {}
+                for v in value:
+                    assert isinstance(v, int)
+                    self._runs.update(
+                        {
+                            f"run-{v}": EEGRun(
+                                base_path=self.root,
+                                run_id=v,
+                                **self._description,
+                            )
+                        }
+                    )
             if all(isinstance(v, EEGRun) for v in value):
                 self._runs = {}
                 for v in value:
@@ -1165,6 +1185,10 @@ class EEGTask(BaseTask):
         Root directory containing task-specific EEG files.
     task_name : str
         BIDS task label used to resolve files such as ``task-<label>``.
+    cog_atlas_id : str | None, optional
+        CogAtlasID of the corresponding Cognitive Atlas Task term.
+    cog_po_id : str | None, optional
+        CogPOID of the corresponding CogPO term.
     **kwargs : str | Datatype | MutableSequence | MutableMapping
         Optional task metadata, datatype information, inherited description
         blocks, and acquisition objects.
@@ -1194,6 +1218,8 @@ class EEGTask(BaseTask):
         self,
         base_path: os.PathLike | str,
         task_name: str,
+        cog_atlas_id: str | None = None,
+        cog_po_id: str | None = None,
         **kwargs: "str | Datatype | MutableSequence | MutableMapping",
     ) -> None:
         description = kwargs.pop("_description", {})
@@ -1203,8 +1229,8 @@ class EEGTask(BaseTask):
             )
         self._description: MutableMapping = description
 
-        self.cog_atlas_id: str | None = kwargs.pop("cog_atlas_id", None)
-        self.cog_po_id: str | None = kwargs.pop("cog_po_id", None)
+        self.cog_atlas_id: str | None = cog_atlas_id
+        self.cog_po_id: str | None = cog_po_id
 
         super().__init__(
             base_path=base_path, task_name=task_name, virtual_entity=False, **kwargs

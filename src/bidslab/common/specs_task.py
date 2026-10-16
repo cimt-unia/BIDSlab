@@ -154,7 +154,7 @@ class Task(BaseTask):
                 "Field `Acquisitions` must be a list of Acquisition objects"
             )
 
-    def write(self, output_path: os.PathLike | str) -> None:
+    def write(self, output_path: os.PathLike | str) -> None:  # noqa: ARG002
         """
         Write task-level files to disk.
 

@@ -16,7 +16,9 @@ and ensure type safety when working with extension entities such as Motion and E
 from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:
+    from bidslab.extensions.eeg import EEGChannel, EEGElectrode
     from bidslab.extensions.emg import EMGChannel, EMGElectrode
+    from bidslab.extensions.ieeg import IEEGChannel, IEEGElectrode
     from bidslab.extensions.motion import MotionChannel
 
 #: TypeVar bound to :py:class:`bidslab.extensions.motion.MotionChannel`
@@ -28,3 +30,15 @@ EC = TypeVar("EC", bound="EMGChannel")
 
 #: TypeVar bound to :py:class:`bidslab.extensions.emg.EMGElectrode` and its subclasses.
 EE = TypeVar("EE", bound="EMGElectrode")
+
+#: TypeVar bound to :py:class:`bidslab.extensions.eeg.EEGChannel` and its subclasses.
+EEC = TypeVar("EEC", bound="EEGChannel")
+
+#: TypeVar bound to :py:class:`bidslab.extensions.eeg.EEGElectrode` and its subclasses.
+EEE = TypeVar("EEE", bound="EEGElectrode")
+
+#: TypeVar bound to :py:class:`bidslab.extensions.ieeg.IEEGChannel` and its subclasses.
+IEEC = TypeVar("IEEC", bound="IEEGChannel")
+
+#: TypeVar bound to :py:class:`bidslab.extensions.ieeg.IEEGElectrode`and its subclasses.
+IEEE = TypeVar("IEEE", bound="IEEGElectrode")

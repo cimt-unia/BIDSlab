@@ -22,7 +22,7 @@ import edf_reader
 import numpy as np
 import pandas as pd
 
-from bidslab._typing import EC, EE, MC, E, PEntity
+from bidslab._typing import EC, EE, EEC, EEE, EV, IEEC, IEEE, MC, SC, E, PEntity
 from bidslab.settings import PackageFetching, PackageLoading, get_settings_value
 from bidslab.utils.checks import (
     check_dataset_description_present,
@@ -43,8 +43,6 @@ from bidslab.utils.string_manipulation import to_snakecase
 
 if TYPE_CHECKING:
     from bidslab.common.specs_dataset import Dataset
-    from bidslab.common.specs_misc import Event
-    from bidslab.common.specs_summary import Scan
 
 try:
     import datalad.api as dl
@@ -62,7 +60,7 @@ REQUIRED_ENTITIES_FOR_WRITING = {
 }
 
 
-def set_attr_from_dict(obj: T, data: dict) -> None:
+def set_attr_from_dict(obj: T, data: dict) -> None:  # noqa: UP047
     """
     Set object attributes from a cleaned dictionary of values.
 
@@ -344,14 +342,14 @@ def get_matching_subpaths(
     {PosixPath('dataset/sub-01'), PosixPath('dataset/sub-01/ses-01/func')}
     """
     # Get matching subpaths in the root directory
-    paths = list(path.relative_to(root).parents) + [path]
+    paths = [*list(path.relative_to(root).parents), path]
     matching_subpaths = [
         root / dir_level
         for dir_level in paths
         for match in matches
         if dir_level.match(match)
     ]
-    return set(matching_subpaths[::-1])
+    return set(matching_subpaths)
 
 
 def get_entity_from_file(path: pathlib.Path, entity_name: str) -> dict[str, str]:
@@ -583,7 +581,18 @@ def get_edf_json_files(
 
 def add_object_to_sequence(
     entity_list: MutableSequence,
-    entity_class: "type[E] | type[EC] | type[EE] | type[MC] | type[Scan] | type[Event]",
+    entity_class: (
+        type[E]
+        | type[EC]
+        | type[EE]
+        | type[EEC]
+        | type[EEE]
+        | type[IEEC]
+        | type[IEEE]
+        | type[MC]
+        | type[SC]
+        | type[EV]
+    ),
     **kwargs: Any,
 ) -> None:
     """
@@ -596,7 +605,7 @@ def add_object_to_sequence(
     ----------
     entity_list : MutableSequence
         Mutable sequence that will receive the created object.
-    entity_class : type[E] | type[EC] | type[EE] | type[MC] | type[Scan]
+    entity_class : type[E] | type[EC] | type[EE] | type[MC] | type[Scan] | type[Event]
         Concrete class to instantiate.
     **kwargs : Any
         Keyword arguments forwarded unchanged to ``entity_class``.
@@ -856,11 +865,11 @@ def get_data() -> Any:
         def wrapper(*args, **kwargs):  # numpydoc ignore=GL08
             pkg_str = get_settings_value("DATASET_FETCHING_PACKAGE")
             if pkg_str in PackageFetching:
-                pkg = eval(pkg_str)
+                pkg = eval(pkg_str)  # type: ignore[arg-type]
             else:
                 pkg = None
             path = kwargs.get("path")
-            if not path.exists():
+            if not path.exists():  # type: ignore[union-attr]
                 if pkg:
                     if pkg.__name__ == "datalad.api":
                         pkg.get(path)
@@ -876,7 +885,7 @@ def get_data() -> Any:
                     )
                 else:
                     raise ValueError(
-                        f"Package '{_pkg_str_to_pkg_name(pkg_str)}' is not available."
+                        f"Package '{_pkg_str_to_pkg_name(pkg_str)}' is not available."  # type: ignore[arg-type]
                     )
             return f(*args, **kwargs)
 
