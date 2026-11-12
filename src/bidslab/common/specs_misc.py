@@ -43,6 +43,7 @@ from bidslab.utils.helpers import (
     append_path,
     copy_file,
     get_entity_from_file,
+    get_higher_directories,
     load_tsv_data,
     parse_descriptive_tsv,
     parse_json_sidecar,
@@ -996,16 +997,8 @@ class Run[A: AcquisitionType](Entity):
                 return None
             self._physio = {}
 
-            # make files a list and append all possible
-            # files in higher directories
-            folders = [self.root]
-            path = self.root
-            target = self.get_top_level_entities()[0]
-            while path.name != target:
-                path = path.parent
-                folders.append(path)
-            path = path.parent
-            folders.append(path)
+            # get directories
+            folders = get_higher_directories(self.root)
 
             files: list[pathlib.Path] = []
             for folder in folders:
@@ -1087,16 +1080,8 @@ class Run[A: AcquisitionType](Entity):
                 return None
             self._stims = {}
 
-            # make files a list and append all possible
-            # files in higher directories
-            folders = [self.root]
-            path = self.root
-            target = self.get_top_level_entities()[0]
-            while path.name != target:
-                path = path.parent
-                folders.append(path)
-            path = path.parent
-            folders.append(path)
+            # get directories
+            folders = get_higher_directories(self.root)
 
             files: list[pathlib.Path] = []
             for folder in folders:
@@ -1343,7 +1328,7 @@ def get_recordings_from_files(
     Parameters
     ----------
     run : Run
-        The ruun object associated with the recordings.
+        The run object associated with the recordings.
     base_path : os.Pathike | str
         The initial path to find the files.
     file_ending : str
@@ -1414,16 +1399,9 @@ def get_events_from_files(  # ruff: ignore[C901]
 
     # sequence of all possible folders
     # in the correct input order (deepest to dataset_root)
-    folders_json = [base_path]
-    path = base_path
-    target = entities[0]
-    while path.name != target:
-        path = path.parent
-        folders_json.append(path)
-    path = path.parent
-    folders_json.append(path)
 
-    folders_tsv = [base_path, base_path.parent]
+    folders_json = get_higher_directories(base_path)
+    folders_tsv = [folders_json[-2], folders_json[-1]]
 
     for folder in folders_json:
         if columns == {}:
@@ -1501,6 +1479,7 @@ def write_events_to_files(
     compressed : bool
         Compression of the output file.
     """
+    output_path = pathlib.Path(output_path)
     output_path_json = append_path(output_path, f"_{file_ending}.json")
     if compressed:
         output_path_tsv = append_path(output_path, f"_{file_ending}.tsv.gz")
@@ -1521,17 +1500,9 @@ def write_events_to_files(
 
     if "stim_file" in data_tsv.columns:
         # find root of the dataset
-        entities = cls.get_top_level_entities()
-        output_dataset_root = pathlib.Path(output_path)
-        target = entities[0]
-        while output_dataset_root.name != target:
-            output_dataset_root = output_dataset_root.parent
-        output_dataset_root = output_dataset_root.parent
+        output_dataset_root = get_higher_directories(output_path)[0]
+        dataset_root = get_higher_directories(cls.root)[0]
 
-        dataset_root = cls.root
-        while dataset_root.name != target:
-            dataset_root = dataset_root.parent
-        dataset_root = dataset_root.parent
         # create stimuli directory
         stimuli_path = pathlib.Path(output_dataset_root / "stimuli")
         if not stimuli_path.exists():

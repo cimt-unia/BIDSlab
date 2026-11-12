@@ -5,6 +5,8 @@
 #
 #  SPDX-License-Identifier: BSD-3-Clause
 
+import json
+import os
 import pathlib
 from warnings import warn
 
@@ -22,7 +24,12 @@ from mimesis.random import Random
 
 import bidslab as abk
 from bidslab.utils.exceptions import FieldNotValidError, TopLevelEntityNotLinkedWarning
-from tests.conftest import FixtureParameterNotSupportedError, _permutate_dict
+from tests.conftest import (
+    FixtureParameterNotSupportedError,
+    _permutate_dict,
+    delete_files,
+    make_files,
+)
 
 SYSTEMS = ["linux", "darwin", "win64"]
 PATH_TYPES = ["pathlib", "str"]
@@ -77,6 +84,17 @@ class SampleClassWarnTopLevel:
         self.attr1 = attr1
 
         warn("Top level entity not linked", TopLevelEntityNotLinkedWarning)
+
+
+class SampleEntity(abk.common.base.Entity):
+    def write(self, output_path: os.PathLike | str) -> None:
+        path = pathlib.Path(output_path)
+        path = path.with_stem(path.stem + "_test.tsv")
+        path.parent.mkdir(exist_ok=True, parents=True)
+        path.touch()
+
+    def get_top_level_entities(self):
+        return []
 
 
 class TestSetClassAttributes:
@@ -222,19 +240,86 @@ class TestCopyFile:
         assert not destination.exists()
 
 
+class TestWriteJson:
+    def test_write_json(self, tmp_root):
+        # Setup
+        file_path = tmp_root / "data.json"
+        data = {"level1": "data1", "level2": "data2"}
+
+        # Test
+        abk.utils.helpers.write_json(data, file_path)
+
+        assert file_path.exists()
+        with file_path.open("r", encoding="utf-8") as f:
+            assert json.load(f) == data
+
+        # Teardown
+        delete_files(tmp_root, [file_path])
+
+    def test_write_json_file_exists(self, tmp_root):
+        # Setup
+        file_path = tmp_root / "data.json"
+        data = {"level1": "data1", "level2": "data2"}
+        make_files(tmp_root, ["data.json"])
+
+        # Test
+        abk.utils.helpers.write_json(data, file_path)
+
+        assert file_path.exists()
+        with file_path.open("r", encoding="utf-8") as f:
+            assert json.load(f) == data
+
+        # Teardown
+        delete_files(tmp_root, [file_path])
+
+    def test_write_json_empty_content(self, tmp_root):
+        # Setup
+        file_path = tmp_root / "data.json"
+        data = {}
+
+        # Test
+        abk.utils.helpers.write_json(data, file_path)
+
+        assert not file_path.exists()
+
+
 class TestWriteEntities:
-    # TODO: Implement tests
-    def test_write_entities_one_required(self):
-        pass
+    def test_write_entities_required(self, tmp_root):
+        # Setup
+        entities = [
+            SampleEntity(_entity_id="0", _entity_name="task", _virtual_entity=False),
+            SampleEntity(_entity_id="1", _entity_name="ses", _virtual_entity=False),
+        ]
+        expected_files = ["task-0_test.tsv", "ses-1_test.tsv"]
 
-    def test_write_entities_multiple_required(self):
-        pass
+        # Test
+        abk.utils.helpers.write_entities(tmp_root / "", entities)
 
-    def test_write_entities_one_optional(self):
-        pass
+        assert ((tmp_root / file).exists() for file in expected_files)
 
-    def test_write_entities_multiple_optional(self):
-        pass
+        # Teardown
+        delete_files(tmp_root, expected_files)
 
-    def test_write_entities_no_entity(self):
-        pass
+    def test_write_entities_optional(self, tmp_root):
+        # Setup
+        entities = [
+            SampleEntity(_entity_id="0", _entity_name="ses", _virtual_entity=True),
+            SampleEntity(_entity_id="1", _entity_name="run", _virtual_entity=True),
+        ]
+        expected_files = ["_test.tsv"]
+
+        # Test
+        abk.utils.helpers.write_entities(tmp_root / "", entities)
+
+        assert ((tmp_root / file).exists() for file in expected_files)
+
+        # Teardown
+        delete_files(tmp_root, expected_files)
+
+    def test_write_entities_no_entity(self, tmp_root):
+        # Setup
+
+        # Test
+        abk.utils.helpers.write_entities(tmp_root / "", [])
+
+        assert list(tmp_root.iterdir()) == []

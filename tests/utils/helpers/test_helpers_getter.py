@@ -160,7 +160,9 @@ class TestGetTsvJsonFiles:
             tsv_path, json_path = abk.utils.helpers.get_tsv_json_files(
                 tmp_root, "*_scans"
             )
-        assert tsv_path == tmp_root / "example_scans.tsv"
+        assert (
+            tsv_path == tmp_root / "example_scans.tsv" or tmp_root / "second_scans.tsv"
+        )
         assert json_path is None
 
         # Teardown
@@ -177,6 +179,89 @@ class TestGetTsvJsonFiles:
                 tmp_root, "*_scans"
             )
         assert tsv_path is None
+        assert (
+            json_path == tmp_root / "example_scans.json"
+            or tmp_root / "second_scans.json"
+        )
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+
+class TestGetEdfJsonFiles:
+    def test_edf_json_files(self, tmp_root):
+        # Setup
+        files = ["example_scans.edf", "example_scans.json"]
+        make_files(tmp_root, files)
+
+        # Test
+        edf_path, json_path = abk.utils.helpers.get_edf_json_files(tmp_root, "*_scans")
+        assert edf_path == tmp_root / "example_scans.edf"
+        assert json_path == tmp_root / "example_scans.json"
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_edf_json_files_wrong_filename(self, tmp_root):
+        # Setup
+        files = ["example_scans.edf", "example_scans.json"]
+        make_files(tmp_root, files)
+
+        # Test
+        edf_path, json_path = abk.utils.helpers.get_edf_json_files(
+            tmp_root, "*wrong_name*"
+        )
+        assert edf_path is None
+        assert json_path is None
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_edf_json_files_filetype_unsupported(self, tmp_root):
+        # Setup
+        files = ["example_scans.csv"]
+        make_files(tmp_root, files)
+
+        # Test
+        with pytest.warns(FileTypeUnsupportedWarning):
+            edf_path, json_path = abk.utils.helpers.get_edf_json_files(
+                tmp_root, "*_scans"
+            )
+        assert edf_path is None
+        assert json_path is None
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_edf_json_files_multiple_tsv(self, tmp_root):
+        # Setup
+        files = ["example_scans.edf", "second_scans.edf"]
+        make_files(tmp_root, files)
+
+        # Test
+        with pytest.warns(abk.utils.exceptions.MultipleFilesFoundWarning):
+            edf_path, json_path = abk.utils.helpers.get_edf_json_files(
+                tmp_root, "*_scans"
+            )
+        assert (
+            edf_path == tmp_root / "example_scans.edf" or tmp_root / "second_scans.edf"
+        )
+        assert json_path is None
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_edf_json_files_multiple_json(self, tmp_root):
+        # Setup
+        files = ["example_scans.json", "second_scans.json"]
+        make_files(tmp_root, files)
+
+        # Test
+        with pytest.warns(abk.utils.exceptions.MultipleFilesFoundWarning):
+            edf_path, json_path = abk.utils.helpers.get_edf_json_files(
+                tmp_root, "*_scans"
+            )
+        assert edf_path is None
         assert (
             json_path == tmp_root / "example_scans.json"
             or tmp_root / "second_scans.json"
@@ -210,3 +295,28 @@ def test_get_entity_from_file(entity):
     # Test
     result = abk.utils.helpers.get_entity_from_file(file_path, entity[0])
     assert result == entity[1]
+
+
+class TestGetHigherDirectories:
+    def test_get_higher_directories_good_structure(self, tmp_root):
+        # Setup
+        path = tmp_root / "sub-0/ses-0/anat"
+
+        expected_result = [
+            tmp_root / "sub-0" / "ses-0" / "anat",
+            tmp_root / "sub-0" / "ses-0",
+            tmp_root / "sub-0",
+            tmp_root,
+        ]
+
+        # Test
+        directories = abk.utils.helpers.get_higher_directories(path)
+        assert directories == expected_result
+
+    def test_get_higher_directories_bad_structure(self, tmp_root):
+        # Setup
+        path = tmp_root / "sub-0/some-other-directory-name/ses-0/anat"
+
+        # Test
+        with pytest.raises(abk.utils.exceptions.BadDirectoryStructureError):
+            abk.utils.helpers.get_higher_directories(path)

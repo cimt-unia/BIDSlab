@@ -46,6 +46,7 @@ from bidslab.utils.dict_manipulation import (
     clean_dict,
 )
 from bidslab.utils.exceptions import (
+    BadDirectoryStructureError,
     FieldNotValidError,
     FileTypeUnsupportedWarning,
     MisusedDecoratorError,
@@ -654,6 +655,63 @@ IEEGElectrodeType | MotionChannelType | ScanType
     """
     entity_instance = entity_class(**kwargs)
     entity_list.append(entity_instance)
+
+
+def get_higher_directories(input_path: os.PathLike | str) -> Sequence[Path]:
+    """
+    Retrieve the directory levels up to the dataset root.
+
+    Parameters
+    ----------
+    input_path : os.PathLike | str
+        Input path of a lower directory level.
+
+    Returns
+    -------
+    Sequence[os.PathLike]
+        A Sequence of the top level directories up to the dataset root.
+
+    Raises
+    ------
+    BadDirectoryStructureError
+        Raised when the directory structure does not follow the expected standard.
+    """
+    datatypes = (
+        "func",
+        "dwi",
+        "fmap",
+        "anat",
+        "perf",
+        "meg",
+        "eeg",
+        "ieeg",
+        "beh",
+        "pet",
+        "micr",
+        "nirs",
+        "motion",
+        "mrs",
+        "emg",
+    )
+
+    path = pathlib.Path(input_path)
+
+    if path.name.startswith(datatypes):
+        directories = [path]
+        directories.extend(get_higher_directories(path.parent))
+        return directories
+
+    if path.name.startswith("ses-"):
+        directories = [path]
+        directories.extend(get_higher_directories(path.parent))
+        return directories
+
+    if path.name.startswith("sub-"):
+        return [path, path.parent]
+
+    raise BadDirectoryStructureError(
+        f"{path} does not follow the expected BIDS directory structure."
+    )
 
 
 def append_path(

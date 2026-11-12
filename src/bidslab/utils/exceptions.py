@@ -178,6 +178,17 @@ class FieldPresentWarning(Warning):
     pass
 
 
+class BadDirectoryStructureError(Exception):
+    """
+    Exception raised when the directory structure does not follow the BIDS standard.
+
+    Typical use cases include any time an objects
+    needs to access files located in higher directories.
+    """
+
+    pass
+
+
 class FileMissingError(Exception):
     """
     Exception raised when a required file is absent.
