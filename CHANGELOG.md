@@ -61,11 +61,14 @@
 - Exclude duplicate members from automodule documentation
 - Format type annotation of entity_class parameter in add_object_to_sequence docstring for docs rendering
 - Fix docstring for runs property
+- Update requirements/README.md to clarify requirements file generation and usage
+- Update TODO list to include actionlint ignore removal note
 
 ### 🎨 Styling
 
 - Add missing trailing comma in release dependencies
 - Add type ignore comments for unreachable code in validation checks
+- Remove unnecessary blank line in tox.ini
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -87,6 +90,16 @@
 - Use self-repository syntax for reusable workflows
 - Add support for maintaining Python package dependencies via uv in dependabot config
 - Add dependency review action workflow
+- Replace markdown issue templates with YAML configurations for bug and feature requests
+- Add check-python-versions hook to pre-commit configuration
+- Update dependency review action configuration and permissions
+- Update classifiers for Python version support in pyproject.toml
+- Add Python 3.14 to the testing matrix in GitHub Actions
+- Add uv.lock file
+- Add additional environments for developer tasks in tox
+- Regenerate requirements files and remove obsolete ones
+- Update generate_requirements hook to compile multiple requirement files with uv
+- Update generate_todos entry to use uv for execution
 
 ## [0.3.0] - 2026-09-16
 
