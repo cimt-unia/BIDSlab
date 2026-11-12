@@ -28,12 +28,15 @@ You want to contribute code to BIDSlab? Great! Here is some information to get y
 1. The changes on `dev` will be tested and merged into the `main` branch.
 1. Your contribution will be part of the next release of BIDSlab!
 
-For more information on the development see the [development guide](https://github.com/cimt-unia/BIDSlab/blob/main/CONTRIBUTING.md).
+For more information on the development see the [developer guide](https://bidslab.readthedocs.io/en/latest/developer_guide.html) in the documentation.
 
 ## Want to improve the documentation or examples?
 
 You can also contribute to BIDSlab by improving the documentation or examples. To do so, please follow the same steps as for contributing code.
 To make sure that your work is not duplicated, please open an issue or pull request to discuss your ideas before you start working on them.
+The documentation is built with Sphinx. The homepage, the developer guide and the changelog include the markdown files of the repository (`README.md` and `CHANGELOG.md`) via myst-parser, so please edit those files instead of duplicating their content in the `.rst` files.
+The `Changelog.md` file is built automatically.
+You can build the documentation locally with `sphinx-build -b html docs/source docs/build/html` as described in the [developer guide](https://bidslab.readthedocs.io/en/latest/developer_guide.html).
 
 ## Other questions?
 
@@ -41,4 +44,4 @@ Email the author: [lukas.behammer@uni-a.de](mailto:lukas.behammer@uni-a.de)
 
 ## Code of Conduct
 
-Please note that this project is released with a [Contributor Code of Conduct](CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.
+Please note that this project is released with a [Contributor Code of Conduct](https://github.com/cimt-unia/BIDSlab/blob/main/CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.

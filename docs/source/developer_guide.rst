@@ -91,6 +91,8 @@ Documentation
 
 We use `Sphinx <https://www.sphinx-doc.org/en/master/>`_ to generate our API reference. Please add documentation to all new public features and changes via docstrings in the code.
 `NumPy <https://numpydoc.readthedocs.io/en/latest/format.html>`_ style docstrings must be used. Additionally .rst files are used for more detailed documentation.
+The markdown files of the repository (``README.md`` and ``CHANGELOG.md``) are included into the documentation with `MyST-Parser <https://myst-parser.readthedocs.io/>`_ (e.g. the homepage is built from ``README.md``), so edit those files instead of duplicating their content in the .rst files.
+The Changelog is generated automatically.
 If you installed the dev dependencies, you can build the documentation with the following command
 
 .. code-block:: bash
