@@ -63,6 +63,9 @@
 - Fix docstring for runs property
 - Update requirements/README.md to clarify requirements file generation and usage
 - Update TODO list to include actionlint ignore removal note
+- Update contact email in CODE_OF_CONDUCT.md
+- Update index.rst and README.md for improved documentation structure and content
+- Add changelog.rst to include external CHANGELOG.md
 
 ### 🎨 Styling
 
@@ -100,6 +103,7 @@
 - Regenerate requirements files and remove obsolete ones
 - Update generate_requirements hook to compile multiple requirement files with uv
 - Update generate_todos entry to use uv for execution
+- Add myst-parser to documentation dependencies
 
 ## [0.3.0] - 2026-09-16
 
