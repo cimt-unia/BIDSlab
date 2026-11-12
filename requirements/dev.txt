@@ -10,6 +10,8 @@ mimesis==22.2.0
     # via bidslab (pyproject.toml:dev)
 mypy==2.4.1
     # via bidslab (pyproject.toml:dev)
+myst-parser==5.1.0
+    # via bidslab (pyproject.toml:dev)
 numpy==2.5.4
     # via bidslab (pyproject.toml)
 numpydoc==1.11.0

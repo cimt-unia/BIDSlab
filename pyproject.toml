@@ -66,6 +66,7 @@ test = [
 docs = [
     "sphinx",
     "sphinx-autobuild",
+    "myst-parser",
     "sphinxcontrib-email",
     "sphinx-copybutton",
     "sphinx-last-updated-by-git",

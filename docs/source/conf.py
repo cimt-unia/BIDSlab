@@ -40,6 +40,7 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx.ext.autosummary",
     "numpydoc",
+    "myst_parser",
     "sphinxcontrib.email",
     "sphinx_copybutton",
     "sphinx_last_updated_by_git",

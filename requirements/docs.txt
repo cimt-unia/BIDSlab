@@ -2,6 +2,8 @@
 #    uv pip compile --no-deps -o requirements/docs.txt --group docs pyproject.toml
 edf-reader==0.1.3
     # via bidslab (pyproject.toml)
+myst-parser==5.1.0
+    # via bidslab (pyproject.toml:docs)
 numpy==2.5.4
     # via bidslab (pyproject.toml)
 numpydoc==1.11.0
