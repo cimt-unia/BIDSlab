@@ -105,6 +105,51 @@ class TestGetRootFiles:
             abk.utils.helpers.get_root_files(test_dataset)
 
 
+class TestGetAnyJsonFile:
+    def test_any_json_file(self, tmp_root):
+        # Setup
+        files = [
+            "sub-0_ses-0_task-some_run-1_scans.json",
+            "sub-0_ses-1_task-some_run-1_scans.json",
+            "sub-1_ses-0_task-some_run-1_scans.json",
+            "sub-1_ses-0_task-some_run-2_scans.json",
+            "sub-0_ses-1_task-some_run-2_scans.json",
+        ]
+        make_files(tmp_root, files)
+
+        # Test
+        json_path = abk.utils.helpers.get_any_json_file(
+            tmp_root, "scans", ["sub-1", "ses-0", "task-some"]
+        )
+        assert (
+            json_path == tmp_root / "sub-1_ses-0_task-some_run-1_scans.json"
+            or tmp_root / "sub-1_ses-0_task-some_run-2_scans.json"
+        )
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_any_json_file_no_fitting_file(self, tmp_root):
+        # Setup
+        files = [
+            "sub-0_ses-0_task-some_run-1_scans.json",
+            "sub-0_ses-1_task-some_run-1_scans.json",
+            "sub-1_ses-0_task-some_run-1_scans.json",
+            "sub-1_ses-0_task-some_run-2_scans.json",
+            "sub-0_ses-1_task-some_run-2_scans.json",
+        ]
+        make_files(tmp_root, files)
+
+        # Test
+        json_path = abk.utils.helpers.get_any_json_file(
+            [tmp_root], "scans", ["sub-10", "ses-0", "task-some"]
+        )
+        assert json_path is None
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+
 class TestGetTsvJsonFiles:
     def test_tsv_json_files(self, tmp_root):
         # Setup
@@ -150,6 +195,22 @@ class TestGetTsvJsonFiles:
         # Teardown
         delete_files(tmp_root, files)
 
+    def test_tsv_json_files_filetype_unsupported_compressed(self, tmp_root):
+        # Setup
+        files = ["example_scans.csv.gz"]
+        make_files(tmp_root, files)
+
+        # Test
+        with pytest.warns(FileTypeUnsupportedWarning):
+            tsv_path, json_path = abk.utils.helpers.get_tsv_json_files(
+                tmp_root, "*_scans"
+            )
+        assert tsv_path is None
+        assert json_path is None
+
+        # Teardown
+        delete_files(tmp_root, files)
+
     def test_tsv_json_files_multiple_tsv(self, tmp_root):
         # Setup
         files = ["example_scans.tsv", "second_scans.tsv"]
@@ -160,7 +221,9 @@ class TestGetTsvJsonFiles:
             tsv_path, json_path = abk.utils.helpers.get_tsv_json_files(
                 tmp_root, "*_scans"
             )
-        assert tsv_path == tmp_root / "example_scans.tsv"
+        assert (
+            tsv_path == tmp_root / "example_scans.tsv" or tmp_root / "second_scans.tsv"
+        )
         assert json_path is None
 
         # Teardown
@@ -177,6 +240,144 @@ class TestGetTsvJsonFiles:
                 tmp_root, "*_scans"
             )
         assert tsv_path is None
+        assert (
+            json_path == tmp_root / "example_scans.json"
+            or tmp_root / "second_scans.json"
+        )
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_tsv_json_files_multiple_driectories(self, tmp_root):
+        # Setup
+        files = ["directory1/example_scans.json", "directory2/example_scans.tsv"]
+        make_files(tmp_root, files)
+
+        # Test
+        tsv_path, json_path = abk.utils.helpers.get_tsv_json_files(
+            [tmp_root / "directory1", tmp_root / "directory2"], "*_scans"
+        )
+        assert json_path == tmp_root / "directory1/example_scans.json"
+        assert tsv_path == tmp_root / "directory2/example_scans.tsv"
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_tsv_json_files_entity_chain(self, tmp_root):
+        # Setup
+        files = [
+            "sub-0_ses-0_task-someTask_scans.json",
+            "sub-0_ses-0_task-someTask_scans.tsv",
+            "sub-1_ses-0_task-someTask_scans.json",
+            "sub-1_ses-0_task-someTask_scans.tsv",
+        ]
+        make_files(tmp_root, files)
+
+        # Test
+        tsv_path, json_path = abk.utils.helpers.get_tsv_json_files(
+            tmp_root, "*_scans", ["sub-0", "ses-0", "task-someTask", "run-1"]
+        )
+        assert json_path == tmp_root / "sub-0_ses-0_task-someTask_scans.json"
+        assert tsv_path == tmp_root / "sub-0_ses-0_task-someTask_scans.tsv"
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_tsv_json_files_entity_chain_no_suitable_files(self, tmp_root):
+        # Setup
+        files = [
+            "sub-0_ses-1_task-someTask_scans.json",
+            "sub-0_ses-1_task-someTask_scans.tsv",
+            "sub-1_ses-0_task-someTask_scans.json",
+            "sub-1_ses-0_task-someTask_scans.tsv",
+        ]
+        make_files(tmp_root, files)
+
+        # Test
+        tsv_path, json_path = abk.utils.helpers.get_tsv_json_files(
+            tmp_root, "*_scans", ["sub-0", "ses-0", "task-someTask", "run-1"]
+        )
+        assert json_path is None
+        assert tsv_path is None
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+
+class TestGetEdfJsonFiles:
+    def test_edf_json_files(self, tmp_root):
+        # Setup
+        files = ["example_scans.edf", "example_scans.json"]
+        make_files(tmp_root, files)
+
+        # Test
+        edf_path, json_path = abk.utils.helpers.get_edf_json_files(tmp_root, "*_scans")
+        assert edf_path == tmp_root / "example_scans.edf"
+        assert json_path == tmp_root / "example_scans.json"
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_edf_json_files_wrong_filename(self, tmp_root):
+        # Setup
+        files = ["example_scans.edf", "example_scans.json"]
+        make_files(tmp_root, files)
+
+        # Test
+        edf_path, json_path = abk.utils.helpers.get_edf_json_files(
+            tmp_root, "*wrong_name*"
+        )
+        assert edf_path is None
+        assert json_path is None
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_edf_json_files_filetype_unsupported(self, tmp_root):
+        # Setup
+        files = ["example_scans.csv"]
+        make_files(tmp_root, files)
+
+        # Test
+        with pytest.warns(FileTypeUnsupportedWarning):
+            edf_path, json_path = abk.utils.helpers.get_edf_json_files(
+                tmp_root, "*_scans"
+            )
+        assert edf_path is None
+        assert json_path is None
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_edf_json_files_multiple_tsv(self, tmp_root):
+        # Setup
+        files = ["example_scans.edf", "second_scans.edf"]
+        make_files(tmp_root, files)
+
+        # Test
+        with pytest.warns(abk.utils.exceptions.MultipleFilesFoundWarning):
+            edf_path, json_path = abk.utils.helpers.get_edf_json_files(
+                tmp_root, "*_scans"
+            )
+        assert (
+            edf_path == tmp_root / "example_scans.edf" or tmp_root / "second_scans.edf"
+        )
+        assert json_path is None
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_edf_json_files_multiple_json(self, tmp_root):
+        # Setup
+        files = ["example_scans.json", "second_scans.json"]
+        make_files(tmp_root, files)
+
+        # Test
+        with pytest.warns(abk.utils.exceptions.MultipleFilesFoundWarning):
+            edf_path, json_path = abk.utils.helpers.get_edf_json_files(
+                tmp_root, "*_scans"
+            )
+        assert edf_path is None
         assert (
             json_path == tmp_root / "example_scans.json"
             or tmp_root / "second_scans.json"
@@ -210,3 +411,143 @@ def test_get_entity_from_file(entity):
     # Test
     result = abk.utils.helpers.get_entity_from_file(file_path, entity[0])
     assert result == entity[1]
+
+
+class TestGetNextEntityIDs:
+    def test_get_next_entity_ids_real(self, tmp_root):
+        # Setup
+        files = [
+            "test/sub-1_ses-test_run-1_physio.json",
+            "test/sub-1_ses-test_run-2_physio.json",
+            "test/sub-1_ses-test2_run-3_physio.json",
+        ]
+        make_files(tmp_root, files)
+
+        # Test
+        entities = abk.utils.helpers.get_next_entity_ids(
+            tmp_root / "test", "run", ["sub-1", "ses-test"]
+        )
+        assert entities.pop("run-1", None) is False
+        assert entities.pop("run-2", None) is False
+        assert entities == {}
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_get_next_entity_ids_virtual(self, tmp_root):
+        # Setup
+        files = [
+            "test/sub-1_ses-test_physio.json",
+            "test/sub-1_ses-test2_run-3_physio.json",
+        ]
+        make_files(tmp_root, files)
+
+        # Test
+        entities = abk.utils.helpers.get_next_entity_ids(
+            tmp_root / "test", "run", ["sub-1", "ses-test"]
+        )
+        assert entities.pop("run-0", None) is True
+        assert entities == {}
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_get_next_entity_ids_first_entity(self, tmp_root):
+        # Setup
+        files = [
+            "test/sub-1_ses-test_physio.json",
+            "test/sub-2_ses-test2_run-3_physio.json",
+            "test/sub-3_ses-test2_run-3_physio.json",
+        ]
+        make_files(tmp_root, files)
+
+        # Test
+        entities = abk.utils.helpers.get_next_entity_ids(tmp_root / "test", "sub", [])
+        assert entities.pop("sub-1", None) is False
+        assert entities.pop("sub-2", None) is False
+        assert entities.pop("sub-3", None) is False
+        assert entities == {}
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_get_next_entity_ids_no_entity_chain(self, tmp_root):
+        # Setup
+        files = [
+            "test/sub-1_ses-test_physio.json",
+            "test/sub-1_ses-test2_run-2_physio.json",
+            "test/sub-2_ses-test2_run-3_physio.json",
+        ]
+        make_files(tmp_root, files)
+
+        # Test
+        entities = abk.utils.helpers.get_next_entity_ids(tmp_root / "test", "ses", [])
+        assert entities.pop("ses-test", None) is False
+        assert entities.pop("ses-test2", None) is False
+        assert entities == {}
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_get_next_entity_ids_fileending(self, tmp_root):
+        # Setup
+        files = [
+            "test/sub-1_ses-test_run-1_stim.json",
+            "test/sub-1_ses-test_run-2_physio.json",
+            "test/sub-1_ses-test_run-3_physio.json",
+        ]
+        make_files(tmp_root, files)
+
+        # Test
+        entities = abk.utils.helpers.get_next_entity_ids(
+            tmp_root / "test", "run", ["sub-1", "ses-test"], filename_ending="physio"
+        )
+        assert entities.pop("run-2", None) is False
+        assert entities.pop("run-3", None) is False
+        assert entities == {}
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+    def test_get_next_entity_ids_fileending_no_files(self, tmp_root):
+        # Setup
+        files = [
+            "test/sub-1_ses-test_run-1_stim.json",
+            "test/sub-1_ses-test_run-2_stim.json",
+            "test/sub-1_ses-test_run-3_stim.json",
+        ]
+        make_files(tmp_root, files)
+
+        # Test
+        entities = abk.utils.helpers.get_next_entity_ids(
+            tmp_root / "test", "run", ["sub-1", "ses-test"], filename_ending="physio"
+        )
+        assert entities == {}
+
+        # Teardown
+        delete_files(tmp_root, files)
+
+
+class TestGetHigherDirectories:
+    def test_get_higher_directories_good_structure(self, tmp_root):
+        # Setup
+        path = tmp_root / "sub-0/ses-0/anat"
+
+        expected_result = [
+            tmp_root / "sub-0" / "ses-0" / "anat",
+            tmp_root / "sub-0" / "ses-0",
+            tmp_root / "sub-0",
+            tmp_root,
+        ]
+
+        # Test
+        directories = abk.utils.helpers.get_higher_directories(path)
+        assert directories == expected_result
+
+    def test_get_higher_directories_bad_structure(self, tmp_root):
+        # Setup
+        path = tmp_root / "sub-0/some-other-directory-name/ses-0/anat"
+
+        # Test
+        with pytest.raises(abk.utils.exceptions.BadDirectoryStructureError):
+            abk.utils.helpers.get_higher_directories(path)

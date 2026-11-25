@@ -26,13 +26,12 @@ from warnings import warn
 import pandas as pd
 
 from bidslab._typing import AcquisitionType
-from bidslab.common.base import BaseAcquisition, Entity, check_entity_mismatch
+from bidslab.common.base import BaseAcquisition, Entity
 from bidslab.settings import get_settings_value
 from bidslab.utils.checks import check_if_valid_uri
 from bidslab.utils.dict_manipulation import (
     ManipulateKeysOption,
     clean_dict,
-    manipulate_dictkeys,
 )
 from bidslab.utils.exceptions import (
     FieldEntryNotValidError,
@@ -42,7 +41,9 @@ from bidslab.utils.helpers import (
     add_object_to_sequence,
     append_path,
     copy_file,
-    get_entity_from_file,
+    get_higher_directories,
+    get_next_entity_ids,
+    get_tsv_json_files,
     load_tsv_data,
     parse_descriptive_tsv,
     parse_json_sidecar,
@@ -74,6 +75,20 @@ FORMAT_ALLOWED_FIELD_ENTRIES = {
     "participant_relative",
     "stimuli_relative",
     "hed_version",
+}
+
+PHYSIO_SCHEMAS = {
+    "hardware": {
+        "manufacturer",
+        "manufacturers_model_name",
+        "software_versions",
+        "device_serial_number",
+    },
+    "columns": {"columns"},
+}
+
+STIMS_SCHEMAS = {
+    "columns": {"columns"},
 }
 
 
@@ -433,9 +448,9 @@ class Event:
         duration: float,
         **kwargs: Any,
     ) -> None:
-        self.onset: float = onset
+        self.onset: float = float(onset)
 
-        self.duration: float = duration
+        self.duration: float = float(duration)
 
         self.columns: dict[str, Any] | None = None
 
@@ -644,17 +659,15 @@ class PhysioRecording(Recording):
         # numpydoc ignore=RT01
         """Get the data of the physio recording."""
         if self._data is None:
-            # load data
-            files = self.root.glob("*physio.tsv.gz")
-            entities = self.get_top_level_entities()
-            for file in files:
-                # test if file is valid
-                if check_entity_mismatch(
-                    file.name.removesuffix("_physio.tsv.gz"), entities
-                ):
-                    # !TODO: handle numpy data type here
-                    self._data = load_tsv_data(path=file)
-                    return self._data
+            # folders = get_higher_directories(self.root)
+            # TODO check where the data file could be located
+
+            tsv_file, _ = get_tsv_json_files(
+                self.root, "*_physio", self.get_top_level_entities()
+            )
+            if tsv_file:
+                self._data = load_tsv_data(path=tsv_file)
+                return self._data
         return self._data
 
     @data.setter
@@ -812,28 +825,14 @@ class StimRecording(Recording):
         # numpydoc ignore=RT01
         """Get the data of the stim recording."""
         if self._data is None:
-            # load data
-            folders = [self.root]
-            path = self.root
-            target = self.get_top_level_entities()[0]
-            while path.name != target:
-                path = path.parent
-                folders.append(path)
-            path = path.parent
-            folders.append(path)
+            folders = get_higher_directories(self.root)
 
-            files: list[pathlib.Path] = []
-            for folder in folders:
-                files = files + list(folder.glob("*_stim.tsv.gz"))
-
-            entities = self.get_top_level_entities()
-            for file in files:
-                # test if file is valid
-                if check_entity_mismatch(
-                    file.name.removesuffix("_stim.tsv.gz"), entities
-                ):
-                    self._data = load_tsv_data(path=file)
-                    return self._data
+            tsv_file, _ = get_tsv_json_files(
+                folders, "*_stim", self.get_top_level_entities()
+            )
+            if tsv_file:
+                self._data = load_tsv_data(path=tsv_file)
+                return self._data
         return self._data
 
     @data.setter
@@ -989,64 +988,32 @@ class Run[A: AcquisitionType](Entity):
         # numpydoc ignore=RT01
         """Get physiological recordings associated with this Run."""
         if self._physio is None:
-            recording_labels = get_recordings_from_files(
-                self, self.root, "physio.tsv.gz"
+            recording_labels = get_next_entity_ids(
+                self.root, "recording", self.get_top_level_entities(), "physio"
             )
             if not recording_labels:
                 return None
             self._physio = {}
 
-            # make files a list and append all possible
-            # files in higher directories
-            folders = [self.root]
-            path = self.root
-            target = self.get_top_level_entities()[0]
-            while path.name != target:
-                path = path.parent
-                folders.append(path)
-            path = path.parent
-            folders.append(path)
-
-            files: list[pathlib.Path] = []
-            for folder in folders:
-                files = files + list(folder.glob("*_physio.json"))
+            # get directories
+            folders = get_higher_directories(self.root)
 
             for key, value in recording_labels.items():
                 # get description (load json sidecar)
                 entitylist = self.get_top_level_entities()
                 entitylist.append(key)
 
-                description = {}
-                for file in files:
-                    if check_entity_mismatch(
-                        file.stem.removesuffix("_physio"),
-                        entitylist,
-                    ):
-                        description = parse_json_sidecar(file)
-                        break
+                _, json_file = get_tsv_json_files(folders, "*_physio", entitylist)
 
-                # create the entity with the loaded description
-                if description:
-                    # TODO create hardware and columns as class
-                    description = manipulate_dictkeys(description, to_snakecase)
-                    sampling_frequency = description.pop("sampling_frequency", None)
-                    start_time = description.pop("start_time", None)
-                    physio_type = description.pop("physio_type", None)
-                    hardware = Hardware(
-                        manufacturer=description.pop("maunfacturer", None),
-                        manufacturers_model_name=description.pop(
-                            "manufacturers_model_name", None
-                        ),
-                        device_serial_number=description.pop(
-                            "device_serial_number", None
-                        ),
-                        software_versions=description.pop("software_versions", None),
+                if json_file:
+                    data = parse_json_sidecar(
+                        json_file, PHYSIO_SCHEMAS, string_manipulation=to_snakecase
                     )
-                    column_names = description.pop("columns", None)
-                    columns = []
 
+                    column_names = data["columns"]
+                    columns = []
                     columns = [
-                        Column(column_name, **description.pop(column_name, {}))
+                        Column(column_name, **data["rest"].pop(column_name, {}))
                         for column_name in column_names
                     ]
 
@@ -1054,12 +1021,9 @@ class Run[A: AcquisitionType](Entity):
                         recording_id=key,
                         virtual_entity=value,
                         base_path=self.root,
-                        sampling_frequency=sampling_frequency,
-                        start_time=start_time,
-                        physio_type=physio_type,
-                        hardware=hardware,
+                        hardware=Hardware(**data["hardware"]),
                         columns=columns,
-                        **description,
+                        **data["rest"],
                     )
                     self._physio[key].run = self
                 else:
@@ -1082,50 +1046,32 @@ class Run[A: AcquisitionType](Entity):
         # numpydoc ignore=RT01
         """Return stim recordings associated with the run."""
         if self._stims is None:
-            recording_labels = get_recordings_from_files(self, self.root, "stim.tsv.gz")
+            recording_labels = get_next_entity_ids(
+                self.root, "recording", self.get_top_level_entities(), "stim"
+            )
             if not recording_labels:
                 return None
             self._stims = {}
 
-            # make files a list and append all possible
-            # files in higher directories
-            folders = [self.root]
-            path = self.root
-            target = self.get_top_level_entities()[0]
-            while path.name != target:
-                path = path.parent
-                folders.append(path)
-            path = path.parent
-            folders.append(path)
-
-            files: list[pathlib.Path] = []
-            for folder in folders:
-                files = files + list(folder.glob("*_stim.json"))
+            # get directories
+            folders = get_higher_directories(self.root)
 
             for key, value in recording_labels.items():
                 # get description (load json sidecar)
                 entitylist = self.get_top_level_entities()
                 entitylist.append(key)
 
-                description = {}
-                for file in files:
-                    if check_entity_mismatch(
-                        file.stem.removesuffix("_stim"),
-                        entitylist,
-                    ):
-                        description = parse_json_sidecar(file)
-                        break
+                _, json_file = get_tsv_json_files(folders, "*_stim", entitylist)
 
-                # create the entity with the loaded description
-                if description:
-                    description = manipulate_dictkeys(description, to_snakecase)
-                    sampling_frequency = description.pop("sampling_frequency", None)
-                    start_time = description.pop("start_time", None)
-                    column_names = description.pop("columns", None)
+                if json_file is not None:
+                    data = parse_json_sidecar(
+                        json_file, STIMS_SCHEMAS, string_manipulation=to_snakecase
+                    )
+
+                    column_names = data["columns"]
                     columns = []
-
                     columns = [
-                        Column(column_name, **description.pop(column_name, {}))
+                        Column(column_name, **data["rest"].pop(column_name, {}))
                         for column_name in column_names
                     ]
 
@@ -1133,9 +1079,8 @@ class Run[A: AcquisitionType](Entity):
                         virtual_entity=value,
                         recording_id=key,
                         base_path=self.root,
-                        sampling_frequency=sampling_frequency,
-                        start_time=start_time,
                         columns=columns,
+                        **data["rest"],
                     )
                     self._stims[key].run = self
                 else:
@@ -1240,36 +1185,17 @@ class Acquisition(BaseAcquisition):
         """Get the runs associated with this Acquisition."""
         if not self._runs:
             self._runs = {}
-            files = self.root.iterdir()
-            run_ids = set()
-            for file in files:
-                try:
-                    run_ids.add(
-                        get_entity_from_file(
-                            file,
-                            "run",
-                        )["run"]
-                    )
-                except KeyError:
-                    continue
-            for run_id in run_ids:
-                run_id_int = int(run_id.split("-")[1])
+            run_entities = get_next_entity_ids(
+                self.root, "run", self.get_top_level_entities()
+            )
+
+            for key, value in run_entities.items():
                 self._runs.update(
                     {
-                        f"run-{run_id_int}": Run(
-                            run_id=run_id_int,
+                        key: Run(
                             base_path=self.root,
-                            acquisition=self,
-                        )
-                    }
-                )
-            # If no runs are found, add a default one
-            if not self._runs:
-                self._runs.update(
-                    {
-                        "run-0": Run(
-                            run_id=0,
-                            base_path=self.root,
+                            run_id=int(key.removeprefix("run-")),
+                            virtual_entity=value,
                             acquisition=self,
                         )
                     }
@@ -1334,57 +1260,7 @@ class Acquisition(BaseAcquisition):
         return entities
 
 
-def get_recordings_from_files(
-    run: Run, base_path: os.PathLike | str, file_ending: str
-) -> dict[str, bool]:
-    """
-    Get recording ids from file names.
-
-    Parameters
-    ----------
-    run : Run
-        The ruun object associated with the recordings.
-    base_path : os.Pathike | str
-        The initial path to find the files.
-    file_ending : str
-        The ending of the files including the extension.
-
-    Returns
-    -------
-    dict[str, bool]
-        A dict containing the recording_ids and if they are virtual_entities.
-    """
-    labels = {}
-
-    base_path = pathlib.Path(base_path)
-    files = base_path.glob(f"*_{file_ending}")
-    for file in files:
-        try:
-            label = get_entity_from_file(file, "recording")["recording"]
-            entities = run.get_top_level_entities()
-            entities.append(f"recording-{label}")
-            if check_entity_mismatch(
-                file.name.removesuffix(f"_{file_ending}"), entities
-            ):
-                labels[f"recording-{label}"] = False
-
-        except KeyError:
-            continue
-
-    if not labels:
-        files = base_path.glob(f"*_{file_ending}")
-        for file in files:
-            # check if a file matches
-            if check_entity_mismatch(
-                file.name.removesuffix(f"_{file_ending}"), run.get_top_level_entities()
-            ):
-                labels["recording-00"] = True
-                break
-
-    return labels
-
-
-def get_events_from_files(  # ruff: ignore[C901]
+def get_events_from_files(
     cls: Recording | Run, base_path: os.PathLike | str, file_ending: str = "events"
 ) -> MutableSequence[Event] | None:
     """
@@ -1409,71 +1285,31 @@ def get_events_from_files(  # ruff: ignore[C901]
     events: MutableSequence[Event] = []
     columns: MutableMapping[Any, Any] = {}
 
-    # get list of top level entities
-    entities = cls.get_top_level_entities()
-
     # sequence of all possible folders
-    # in the correct input order (deepest to dataset_root)
-    folders_json = [base_path]
-    path = base_path
-    target = entities[0]
-    while path.name != target:
-        path = path.parent
-        folders_json.append(path)
-    path = path.parent
-    folders_json.append(path)
+    folders_json = get_higher_directories(base_path)
+    folders_tsv = [folders_json[0], folders_json[1]]
 
-    folders_tsv = [base_path, base_path.parent]
+    _, json_file = get_tsv_json_files(
+        folders_json, f"*_{file_ending}", cls.get_top_level_entities()
+    )
+    tsv_file, _ = get_tsv_json_files(
+        folders_tsv, f"*_{file_ending}", cls.get_top_level_entities()
+    )
 
-    for folder in folders_json:
-        if columns == {}:
-            # get all possible files with _events.json
-            files_json = list(folder.glob(f"*_{file_ending}.json"))
-            filenames_json = [f.name for f in files_json]
-            file_entities_json = [
-                f.removesuffix(f"_{file_ending}.json") for f in filenames_json
-            ]
+    if json_file and not tsv_file:
+        warn("JSON file found, but no suitable TSV file available")
 
-            # check for entity mismatches and use first one working
-            for file in file_entities_json:
-                if check_entity_mismatch(file, entities):
-                    # load .json file and save it
-                    columns = parse_json_sidecar(
-                        folder / (file + f"_{file_ending}.json")
-                    )
-                    break
-        else:
-            break
-
-    for folder in folders_tsv:
-        if events == []:
-            # get all possible files with _events.tsv
-            files_tsv = list(folder.glob(f"*_{file_ending}.tsv"))
-            files_tsv.extend(list(folder.glob(f"*_{file_ending}.tsv.gz")))
-            filenames_tsv = [f.stem.removesuffix(f"_{file_ending}") for f in files_tsv]
-
-            # check for entity mismatches and use first one working
-            for file in filenames_tsv:
-                if check_entity_mismatch(file, entities):
-                    # load .tsv file and save it
-                    try:
-                        data = parse_descriptive_tsv(
-                            tsv_path=folder / (file + f"_{file_ending}.tsv")
-                        )
-                    except FileNotFoundError:
-                        data = parse_descriptive_tsv(
-                            tsv_path=folder / (file + f"_{file_ending}.tsv.gz")
-                        )
-                    for event in data:
-                        add_object_to_sequence(
-                            entity_list=events,
-                            entity_class=Event,
-                            columns=columns,
-                            **event,
-                        )
-                    break
-        else:
-            break
+    if json_file:
+        columns = parse_json_sidecar(json_file)
+    if tsv_file:
+        data = parse_descriptive_tsv(tsv_path=tsv_file)
+        for event in data:
+            add_object_to_sequence(
+                entity_list=events,
+                entity_class=Event,
+                columns=columns,
+                **event,
+            )
 
     return events
 
@@ -1501,6 +1337,7 @@ def write_events_to_files(
     compressed : bool
         Compression of the output file.
     """
+    output_path = pathlib.Path(output_path)
     output_path_json = append_path(output_path, f"_{file_ending}.json")
     if compressed:
         output_path_tsv = append_path(output_path, f"_{file_ending}.tsv.gz")
@@ -1515,23 +1352,14 @@ def write_events_to_files(
     write_json(content=description, output_path=output_path_json)
 
     # write stimuli and tsv data
-
     data_tsv = pd.DataFrame(event.__dict__ for event in events)
     data_tsv = data_tsv.drop(columns=["columns"], errors="ignore")
 
     if "stim_file" in data_tsv.columns:
         # find root of the dataset
-        entities = cls.get_top_level_entities()
-        output_dataset_root = pathlib.Path(output_path)
-        target = entities[0]
-        while output_dataset_root.name != target:
-            output_dataset_root = output_dataset_root.parent
-        output_dataset_root = output_dataset_root.parent
+        output_dataset_root = get_higher_directories(output_path.parent)[-1]
+        dataset_root = get_higher_directories(cls.root)[-1]
 
-        dataset_root = cls.root
-        while dataset_root.name != target:
-            dataset_root = dataset_root.parent
-        dataset_root = dataset_root.parent
         # create stimuli directory
         stimuli_path = pathlib.Path(output_dataset_root / "stimuli")
         if not stimuli_path.exists():

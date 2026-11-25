@@ -22,6 +22,26 @@ def cleaned_sample_dict():
                 "path_key": "/some/path",
             },
             "path_key2": "/some/other/path",
+            "Levels": {"some_level": {"Description": "some description"}},
+        },
+        "list_with_none": [
+            {"subkey1": "subvalue1"},
+            "a_string",
+        ],
+        "another_key": "another_value",
+    }
+
+
+@pytest.fixture
+def levels_sample_dict():
+    return {
+        "level1": {
+            "level2": {
+                "key1": "value1",
+                "path_key": "/some/path",
+            },
+            "path_key2": "/some/other/path",
+            "Levels": {"test": {"Description": "test description"}},
         },
         "list_with_none": [
             {"subkey1": "subvalue1"},
@@ -42,6 +62,7 @@ def sample_dict():
                 "path_key": pathlib.Path("/some/path"),
             },
             "path_key2": pathlib.Path("/some/other/path"),
+            "Levels": {"some_level": {"Description": "some description"}},
         },
         "list_with_none": [
             {"subkey1": "subvalue1", "subkey2": None},
@@ -54,8 +75,19 @@ def sample_dict():
 
 
 class TestAddLevelsToDict:
-    # TODO: Implement tests for add_levels_to_dict
-    pass
+    def test_add_levels_to_dict(self, cleaned_sample_dict, levels_sample_dict):
+        levels_dict = cleaned_sample_dict
+        abk.utils.dict_manipulation.add_levels_to_dict(
+            [
+                abk.common.specs_misc.Level(
+                    level_name="test", description="test description"
+                )
+            ],
+            "level1",
+            levels_dict,
+        )
+
+        assert levels_dict == levels_sample_dict
 
 
 class TestCleanDict:

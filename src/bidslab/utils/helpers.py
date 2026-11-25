@@ -46,6 +46,7 @@ from bidslab.utils.dict_manipulation import (
     clean_dict,
 )
 from bidslab.utils.exceptions import (
+    BadDirectoryStructureError,
     FieldNotValidError,
     FileTypeUnsupportedWarning,
     MisusedDecoratorError,
@@ -143,26 +144,38 @@ def set_attr_from_dict[T](obj: T, data: dict) -> None:
                 ) from None
 
 
-def parse_json_sidecar(sidecar_path: pathlib.Path) -> dict:
+def parse_json_sidecar(
+    sidecar_path: pathlib.Path,
+    schemas: dict[str, set[str]] | None = None,
+    string_manipulation: Callable[[str], str] | None = None,
+) -> dict:
     """
-    Parse a BIDS JSON sidecar file into a dictionary.
+    Parse a BIDS JSON sidecar file into one or multiple dictionaries.
 
     JSON sidecars in BIDS datasets typically store acquisition metadata,
     coordinate-system descriptions, channel annotations, or other structured
     descriptors that accompany imaging or physiological data files. This helper
-    provides a thin UTF-8-aware wrapper around :py:func:`json.load`.
+    provides a thin UTF-8-aware wrapper around :py:func:`json.load`. It can also
+    sort the output into multiple dictionaries described by input schemas, intended
+    to parse a json sidecar into izs various components, like task, hardware or
+    institution information.
 
     Parameters
     ----------
     sidecar_path : pathlib.Path
         Path to the JSON sidecar file. The path is expected to point to a readable
         UTF-8 encoded ``.json`` file.
+    schemas : dict[str, set[str]] | None
+        Dictionary of keywords and their respective schema.
+    string_manipulation : Callable[[str], str] | None, optional
+        Callable applied to each key.
 
     Returns
     -------
     dict
-        Parsed JSON content as a Python dictionary. Typical return values include
-        metadata such as ``{"SamplingFrequency": 1000, "StartTime": 0.0}``.
+        Parsed JSON content as a Python dictionary, when schemas is None, or
+        nested dictionaries following the given schemas with the remaining keys
+        not used in the schemas in ``rest``.
 
     Raises
     ------
@@ -193,7 +206,25 @@ def parse_json_sidecar(sidecar_path: pathlib.Path) -> dict:
     1000
     """
     with sidecar_path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        input_dict = json.load(f)
+    if string_manipulation is not None:
+        manipulated_dict = {
+            string_manipulation(key): value for key, value in input_dict.items()
+        }
+    else:
+        manipulated_dict = input_dict
+    if schemas is None:
+        return manipulated_dict
+
+    output_dicts = {}
+    # fill each schema, None if key does not exist
+    for key, schema in schemas.items():
+        output_dicts[key] = {k: manipulated_dict.pop(k, None) for k in schema}
+
+    # add the rest
+    output_dicts["rest"] = manipulated_dict
+
+    return output_dicts
 
 
 def parse_descriptive_tsv(tsv_path: pathlib.Path) -> Iterator[dict]:
@@ -392,6 +423,8 @@ def get_entity_from_file(path: pathlib.Path, entity_name: str) -> dict[str, str]
     --------
     :py:func:`bidslab.utils.string_manipulation.remove_special_characters`
         Normalizes strings that may later be used as entity values.
+    :py:func:`get_next_entity_ids`
+        Get the entity ids for an entity name within the files of a directory.
 
     Notes
     -----
@@ -414,24 +447,166 @@ def get_entity_from_file(path: pathlib.Path, entity_name: str) -> dict[str, str]
     return entities
 
 
-def get_tsv_json_files(
-    path: pathlib.Path, file_name: str
-) -> tuple[pathlib.Path | None, pathlib.Path | None]:
+def get_next_entity_ids(
+    directory: pathlib.Path,
+    entity_name: str,
+    entity_chain: Sequence[str],
+    filename_ending: str | None = None,
+) -> dict[str, bool]:
     """
-    Locate TSV and JSON companions for a shared base name.
+    Get the entity ids for an entity name within the files of a directory.
 
-    Many BIDS tabular resources are stored as ``.tsv`` or ``.tsv.gz`` files with an
-    optional sidecar JSON file that describes columns, units, or acquisition
-    metadata. This helper scans one directory and returns the first supported file of
-    each type while warning about duplicates or unsupported extensions.
+    BIDS file names encode metadata as ``entity-value`` pairs such as ``sub-01`` or
+    ``task-rest``. This helper searches a directory for a specific entity label and
+    returns either every label that also matches with the given entity chain or a
+    dummy label for use in a virtual entity.
 
     Parameters
     ----------
-    path : pathlib.Path
-        Directory in which the companion files should be searched.
+    directory : pathlib.Path
+        Directory in which the labels should be searched.
+    entity_name : str
+        Entity name to extract, for example ``"sub"`` or ``"task"``. Embedded spaces
+        are removed before matching.
+    entity_chain : Sequence[str]
+        Sequence containing all entity ids that the searched file
+        may contain, including virtual entities.
+    filename_ending : str | None
+        Optional additional string that must be contained at the end
+        of the file (eg. ``"physio"`` for ``"..._physio.json"``).
+        Must be without the file extension.
+
+    Returns
+    -------
+    dict[str, bool]
+        Dictionary containing all found labels and
+        whether they are real or virtual ones.
+
+    See Also
+    --------
+    :py:func:`get_entity_from_file`
+        Extract one BIDS entity and its values from a file stem.
+    """
+    output_dict = {}
+
+    if filename_ending is None:
+        files = directory.glob(f"*{entity_name}-*")
+    else:
+        files = directory.glob(f"*{entity_name}-*{filename_ending}.*")
+
+    for file in files:
+        if file.name.startswith(entity_name) or entity_chain == []:
+            entity = get_entity_from_file(file, entity_name)
+            output_dict.update({f"{entity_name}-{entity[entity_name]}": False})
+        else:
+            file_entities = file.name.split(f"_{entity_name}")[0].split("_")
+            if set(file_entities).issubset(entity_chain):
+                entity = get_entity_from_file(file, entity_name)
+                output_dict.update({f"{entity_name}-{entity[entity_name]}": False})
+
+    if output_dict == {}:
+        if filename_ending is not None:
+            files_with_ending = list(directory.glob(f"*{filename_ending}.*"))
+            if not files_with_ending:
+                return output_dict
+
+        output_dict.update({f"{entity_name}-0": True})
+    return output_dict
+
+
+def get_any_json_file(
+    path: pathlib.Path | Sequence[pathlib.Path],
+    file_name: str,
+    entity_chain: Sequence[str],
+) -> pathlib.Path | None:
+    """
+    Locate JSON companion for a non complete list of entity ids.
+
+    Many BIDS tabular resources are stored as ``.tsv`` or ``.tsv.gz`` files with an
+    optional sidecar JSON file that describes columns, units, or acquisition
+    metadata. This helper scans one or multiple directories and returns a file, where
+    all the entities that appear both within the filename and entity chain must match.
+    This helper should be used when looking up files containing common fields that
+    are not affected by lower entities, like Task information.
+
+    Parameters
+    ----------
+    path : pathlib.Path | Sequence[pathlib.Path]
+        Directories in which the companion files should be searched.
+    file_name : str
+        Shared file name stem without extension, for example ``"motion"``.
+    entity_chain : Sequence[str]
+        Sequence containing all entity ids that the searched file
+        must not mismatch, including virtual entities.
+
+    Returns
+    -------
+    pathlib.Path | None
+        Path to a fitting JSON file, or None if no suitable file is found.
+
+    See Also
+    --------
+    :py:func:`parse_json_sidecar`
+        Parses the returned JSON sidecar.
+    :py:func:`get_tsv_json_files`
+        Function to retrieve TSV and JSON filenames where all entities
+        within the filename must appear in the entity chain.
+
+    Notes
+    -----
+    Returns the first file that matches, no warnings for multiple files are given.
+    """
+    # if only a single path/directory -> construct a list regardless
+    if isinstance(path, pathlib.Path):
+        directories = [path]
+    else:
+        directories = list(path)
+
+    entity_dict = dict(e.split("-", 1) for e in entity_chain)
+
+    for directory in directories:
+        files = directory.glob(f"*_{file_name}.json")
+
+        for file in files:
+            file_entities = dict(
+                e.split("-", 1)
+                for e in file.name.removesuffix(f"_{file_name}.json").split("_")
+            )
+
+            if all(
+                file_entities[key] == entity_dict[key]
+                for key in file_entities.keys() & entity_dict.keys()
+            ):
+                return file
+
+    return None
+
+
+def get_tsv_json_files(  # ruff: ignore[C901]
+    path: pathlib.Path | Sequence[pathlib.Path],
+    file_name: str,
+    entity_chain: Sequence[str] | None = None,
+) -> tuple[pathlib.Path | None, pathlib.Path | None]:
+    """
+    Locate TSV and JSON companions for a shared base name or list of entity ids.
+
+    Many BIDS tabular resources are stored as ``.tsv`` or ``.tsv.gz`` files with an
+    optional sidecar JSON file that describes columns, units, or acquisition
+    metadata. This helper scans one or multiple directories and returns the lowest
+    level supported file of each type while warning about duplicates or
+    unsupported extensions.
+
+    Parameters
+    ----------
+    path : pathlib.Path | Sequence[pathlib.Path]
+        Directories in which the companion files should be searched.
     file_name : str
         Shared file name stem without extension, for example ``"participants"`` or
-        ``"sub-01_task-rest_physio"``.
+        ``"sub-01_task-rest_physio"``. If an entity chain is also given this field
+        must only include the suffix and no entities (e.g. ``"participants"``).
+    entity_chain : Sequence[str] | None
+        Sequence containing all entity ids that the searched file
+        may contain, including virtual entities.
 
     Returns
     -------
@@ -467,44 +642,68 @@ def get_tsv_json_files(
     >>> tsv_path.suffix in {".tsv", ".gz"}
     True
     """
-    files = path.glob(f"{file_name}.*")
+    # if only a single path/directory -> construct a list regardless
+    if isinstance(path, pathlib.Path):
+        directories = [path]
+    else:
+        directories = list(path)
+
     tsv_path = None
     json_path = None
-    for file in files:
-        match file.suffix:
-            case ".tsv" | ".gz":
-                if file.suffix == ".gz" and not file.stem.endswith(".tsv"):
+
+    for directory in directories:
+        files = directory.glob(f"{file_name}.*")
+        matching_files = []
+        if entity_chain is not None:
+            for file in files:
+                file_entities = file.name.split(".")[0].split("_")[:-1]
+                if set(file_entities).issubset(entity_chain):
+                    matching_files.append(file)
+        else:
+            matching_files = list(files)
+
+        for file in matching_files:
+            match file.suffix:
+                case ".tsv" | ".gz":
+                    if file.suffix == ".gz" and not file.stem.endswith(".tsv"):
+                        warn(
+                            f"File {file} has an unsupported extension. "
+                            f"Only .tsv[.gz] and .json are supported.",
+                            FileTypeUnsupportedWarning,
+                        )
+                        continue
+                    if not tsv_path:
+                        tsv_path = file
+                    else:
+                        warn(
+                            f"Multiple TSV files found for {file_name}. "
+                            f"Using the first one found: {tsv_path.name}",
+                            MultipleFilesFoundWarning,
+                        )
+                        continue
+
+                case ".json":
+                    if not json_path:
+                        json_path = file
+                    else:
+                        warn(
+                            f"Multiple JSON files found for {file_name}. Using "
+                            f"the first one found: {json_path.name}",
+                            MultipleFilesFoundWarning,
+                        )
+                    continue
+                case _:
                     warn(
-                        f"File {file} has an unsupported extension. Only .tsv[.gz] and "
-                        f".json are supported.",
+                        f"File {file} has an unsupported extension. "
+                        f"Only .tsv and .json are supported.",
                         FileTypeUnsupportedWarning,
                     )
-                    continue
-                if not tsv_path:
-                    tsv_path = file
-                else:
-                    warn(
-                        f"Multiple TSV files found for {file_name}. Using the first "
-                        f"one found: {tsv_path.name}",
-                        MultipleFilesFoundWarning,
-                    )
-                continue
-            case ".json":
-                if not json_path:
-                    json_path = file
-                else:
-                    warn(
-                        f"Multiple JSON files found for {file_name}. Using the first "
-                        f"one found: {json_path.name}",
-                        MultipleFilesFoundWarning,
-                    )
-                continue
-            case _:
-                warn(
-                    f"File {file} has an unsupported extension. Only .tsv and .json "
-                    f"are supported.",
-                    FileTypeUnsupportedWarning,
-                )
+
+            # this would skip higher directories but also
+            # warnings about multiple files would not be given
+
+            # if tsv_path is not None and json_path is not None:
+            #    return tsv_path, json_path
     return tsv_path, json_path
 
 
@@ -654,6 +853,63 @@ IEEGElectrodeType | MotionChannelType | ScanType
     """
     entity_instance = entity_class(**kwargs)
     entity_list.append(entity_instance)
+
+
+def get_higher_directories(input_path: os.PathLike | str) -> Sequence[Path]:
+    """
+    Retrieve the directory levels up to the dataset root.
+
+    Parameters
+    ----------
+    input_path : os.PathLike | str
+        Input path of a lower directory level.
+
+    Returns
+    -------
+    Sequence[os.PathLike]
+        A Sequence of the top level directories up to the dataset root.
+
+    Raises
+    ------
+    BadDirectoryStructureError
+        Raised when the directory structure does not follow the expected standard.
+    """
+    datatypes = (
+        "func",
+        "dwi",
+        "fmap",
+        "anat",
+        "perf",
+        "meg",
+        "eeg",
+        "ieeg",
+        "beh",
+        "pet",
+        "micr",
+        "nirs",
+        "motion",
+        "mrs",
+        "emg",
+    )
+
+    path = pathlib.Path(input_path)
+
+    if path.name.startswith(datatypes):
+        directories = [path]
+        directories.extend(get_higher_directories(path.parent))
+        return directories
+
+    if path.name.startswith("ses-"):
+        directories = [path]
+        directories.extend(get_higher_directories(path.parent))
+        return directories
+
+    if path.name.startswith("sub-"):
+        return [path, path.parent]
+
+    raise BadDirectoryStructureError(
+        f"{path} does not follow the expected BIDS directory structure."
+    )
 
 
 def append_path(

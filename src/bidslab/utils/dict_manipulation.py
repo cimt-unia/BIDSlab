@@ -252,7 +252,7 @@ def dict_paths_to_strings(dict_input: dict) -> dict:
             dict_output[key] = dict_paths_to_strings(value)
         else:
             if isinstance(value, pathlib.Path):
-                dict_output[key] = str(value)
+                dict_output[key] = value.as_posix()
             else:
                 dict_output[key] = value
 
